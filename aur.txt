@@ -4,7 +4,6 @@
 # 硬件支持和驱动
 aic8800d80-dkms
 ayn-platform-dkms-git
-bcm20702a1-firmware
 bmi260-dkms
 chimeraos-device-quirks-sk
 evdev-keepalive
@@ -62,7 +61,6 @@ onedrive-abraunegg
 protonplus
 protonup-qt
 protontricks
-python-pyclip
 qqmusic-bin
 sx
 tsukimi-bin
@@ -83,7 +81,6 @@ nautilus-copy-path
 nautilus-open-any-terminal
 
 # Hyprland 工具
-hyprshot
 tofi
 wlogout-git
 
