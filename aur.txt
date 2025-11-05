@@ -30,7 +30,6 @@ gamescope-sk
 gamescope-session-sk-git
 gamescope-session-steam-sk-git
 gamescope-session-steam-plus-git
-steam_notif_daemon
 
 # 系统工具
 downgrade
