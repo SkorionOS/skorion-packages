@@ -77,22 +77,16 @@ fi
 # =============================================================================
 cd "$OUTPUT_DIR"
 
+# 删除 debug 包
+rm -f *-debug-*.pkg.tar.zst
+echo "==> 已删除 debug 包"
+
 # 移除 epoch (:) 从文件名（artifact 不支持）
 for file in *:*.pkg.tar.zst; do
     [ -f "$file" ] || continue
     new_name="${file//:/--}"
     mv "$file" "$new_name"
     echo "==> 移除 epoch: $file -> $new_name"
-done
-
-# 为包添加前缀标记（便于识别）
-for file in *.pkg.tar.zst; do
-    [ -f "$file" ] || continue
-    if [[ ! "$file" =~ ^\[.*\]- ]]; then
-        new_name="[${PACKAGE_NAME}]-${file}"
-        mv "$file" "$new_name"
-        echo "==> 重命名: $file -> $new_name"
-    fi
 done
 
 echo "==> 构建完成: $PACKAGE_NAME"

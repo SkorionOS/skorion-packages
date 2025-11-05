@@ -214,15 +214,21 @@ jobs:
       - name: Download new build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
+          pattern: aur-*
+          merge-multiple: true
+          path: output/
         continue-on-error: true
       
-      - name: Collect new packages
+      - name: Download local package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: local-*
+          merge-multiple: true
+          path: output/
+        continue-on-error: true
+      
+      - name: List new packages
         run: |
-          mkdir -p output
-          if [ -d "artifacts" ]; then
-            find artifacts/ -name "*.pkg.tar.zst" -exec cp {} output/ \;
-          fi
           echo "==> 新构建的包:"
           ls -lh output/ || echo "  无新包"
       
@@ -246,9 +252,8 @@ jobs:
           echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
             filename=$(basename "$url")
             
-            # 跳过已经构建的包（新包优先）
-            pkg_base=$(echo "$filename" | sed 's/^\[.*\]-//')
-            if [ -f "output/$filename" ] || ls output/*"$pkg_base" 2>/dev/null | grep -q .; then
+            # 跳过已存在的包（新构建优先）
+            if [ -f "output/$filename" ]; then
               echo "  跳过 $filename (已有新版本)"
               continue
             fi

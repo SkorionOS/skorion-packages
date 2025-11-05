@@ -52,8 +52,8 @@ for pkg in *.pkg.tar.zst; do
             echo "," >> packages.json
         fi
         
-        # 移除前缀标记和后缀
-        pkg_clean=$(echo "$pkg" | sed 's/^\[.*\]-//' | sed 's/\.pkg\.tar\.zst$//')
+        # 移除 .pkg.tar.zst 后缀
+        pkg_clean=$(echo "$pkg" | sed 's/\.pkg\.tar\.zst$//')
         echo -n "    \"$pkg_clean\"" >> packages.json
     fi
 done

@@ -3,13 +3,17 @@
 
 # 硬件支持和驱动
 aic8800d80-dkms
+ayn-platform-dkms-git
 bcm20702a1-firmware
+bmi260-dkms
 chimeraos-device-quirks-sk
 evdev-keepalive
+gpd-fan-driver-dkms-git
 gpdconfig-git
 hhd
 hhd-ui
 hhfc-git
+hid-msi-claw-dkms-git
 inputplumber-bin
 linux-firmware-valve
 nintendo-udev
@@ -43,20 +47,27 @@ yay-git
 lib32-extest
 
 # 字体和输入法
+ibus-autostart
 kanit-font
 noto-fonts-cjk-fontconfig
 
 # 应用程序
+cursor-bin
 flatseal
+linuxqq
+microsoft-edge-stable-bin
 moonlight-qt-axi
 nbfc-linux
 onedrive-abraunegg
 protonplus
+protonup-qt
 protontricks
 python-pyclip
+qqmusic-bin
 sx
 tsukimi-bin
 vboard
+xviewer
 
 # KDE 主题
 plasma6-themes-vapor-steamos
