@@ -38,70 +38,33 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq curl
       
-      - name: Check AUR updates
+      - name: Check package updates
         id: check-updates
         env:
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
           bash scripts/check-updates.sh
-          
-          # 检查是否有需要构建的包
-          if [ -s updated-packages.txt ]; then
-            echo "has-updates=true" >> $GITHUB_OUTPUT
-          else
-            echo "has-updates=false" >> $GITHUB_OUTPUT
-          fi
       
       - name: List AUR packages to build
         id: set-aur
         run: |
-          if [ -s updated-packages.txt ]; then
-            # 只构建有更新的包
-            packages=$(cat updated-packages.txt | jq -R -s -c 'split("\n")[:-1]')
+          if [ -s updated-aur-packages.txt ]; then
+            packages=$(cat updated-aur-packages.txt | jq -R -s -c 'split("\n")[:-1]')
           else
-            # 没有更新，返回空列表
             packages="[]"
           fi
           echo "matrix=$packages" >> $GITHUB_OUTPUT
           echo "AUR packages to build: $packages"
       
-      - name: List local packages
+      - name: List local packages to build
         id: set-local
         run: |
-          if [ ! -d "local" ]; then
-            echo "matrix=[]" >> $GITHUB_OUTPUT
-            echo "Local packages: []"
-            exit 0
-          fi
-          
-          # 1. 检测有 git 变动的包
-          changed_dirs=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '^local/' | cut -d'/' -f2 | sort -u || echo "")
-          
-          # 2. 检测有 pkgver() 函数的包（动态版本，每次都构建）
-          dynamic_pkgs=""
-          for pkg_dir in local/*/; do
-            pkg_name=$(basename "$pkg_dir")
-            if [ -f "$pkg_dir/PKGBUILD" ]; then
-              if grep -qE '^\s*pkgver\s*\(\)' "$pkg_dir/PKGBUILD"; then
-                dynamic_pkgs="$dynamic_pkgs$pkg_name"$'\n'
-                echo "  → $pkg_name 有 pkgver() 函数，需要构建"
-              fi
-            fi
-          done
-          
-          # 3. 合并两个列表并去重
-          all_pkgs=$(echo -e "${changed_dirs}\n${dynamic_pkgs}" | sort -u | grep -v '^$' || echo "")
-          
-          if [ -n "$all_pkgs" ]; then
-            packages=$(echo "$all_pkgs" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-            echo "==> 需要构建的本地包:"
-            echo "$all_pkgs"
+          if [ -s updated-local-packages.txt ]; then
+            packages=$(cat updated-local-packages.txt | jq -R -s -c 'split("\n")[:-1]')
           else
             packages="[]"
-            echo "==> 本地包无需构建"
           fi
-          
           echo "matrix=$packages" >> $GITHUB_OUTPUT
           echo "Local packages to build: $packages"
       
