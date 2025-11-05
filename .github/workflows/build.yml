@@ -126,7 +126,7 @@ jobs:
   # ===========================================================================
   build-packages:
     needs: list-packages
-    name: Build ${{ matrix.type }} - ${{ matrix.package }}
+    name: Build Packages
     runs-on: ubuntu-latest
     if: needs.list-packages.outputs.all-packages != '[]'
     container:
@@ -160,7 +160,7 @@ jobs:
           
           chown -R builder:builder $GITHUB_WORKSPACE
       
-      - name: Build package
+      - name: Build ${{ matrix.type }} package - ${{ matrix.package }}
         env:
           PACKAGE_NAME: ${{ matrix.package }}
           PACKAGE_TYPE: ${{ matrix.type }}
