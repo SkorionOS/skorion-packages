@@ -112,14 +112,14 @@ jobs:
           aur_packages='${{ steps.set-aur.outputs.matrix }}'
           local_packages='${{ steps.set-local.outputs.matrix }}'
           
-          # 为每个包添加类型字段
-          all_packages=$(jq -n \
+          # 为每个包添加类型字段（使用 -c 压缩成单行）
+          all_packages=$(jq -nc \
             --argjson aur "$aur_packages" \
             --argjson local "$local_packages" \
             '($aur | map({package: ., type: "aur"})) + ($local | map({package: ., type: "local"}))')
           
           echo "matrix=$all_packages" >> $GITHUB_OUTPUT
-          echo "All packages to build: $all_packages"
+          echo "All packages to build: $(echo "$all_packages" | jq -c '.[0:3]')... (total: $(echo "$all_packages" | jq 'length'))"
 
   # ===========================================================================
   # Job 2: 并行构建所有包（AUR + 本地）
