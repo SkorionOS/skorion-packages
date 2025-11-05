@@ -1,0 +1,9 @@
+# 需要固定版本的 AUR 包
+# 格式: 包名=git_commit_hash
+# 留空或省略 hash 表示使用最新版本
+
+# 示例:
+# problematic-package=abc123def456
+# stable-package=
+
+

@@ -1,0 +1,17 @@
+# Build outputs
+output/
+*.pkg.tar.zst
+*.pkg.tar.xz
+*.pkg.tar.gz
+
+# Build directories
+src/
+pkg/
+
+# Temporary files
+*.tmp
+*.log
+
+# makepkg
+*.src.tar.gz
+

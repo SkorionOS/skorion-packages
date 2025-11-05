@@ -1,0 +1,78 @@
+# SkorionOS AUR 包列表
+# 所有 AUR 包，不区分桌面环境
+
+# 硬件支持和驱动
+aic8800d80-dkms
+bcm20702a1-firmware
+chimeraos-device-quirks-sk
+evdev-keepalive
+gpdconfig-git
+hhd
+hhd-ui
+hhfc-git
+inputplumber-bin
+linux-firmware-valve
+nintendo-udev
+rtl8812au-dkms-git
+rtl8814au-dkms-git
+rtl8821au-dkms-git
+ryzenadj-git
+ryzen_smu-dkms-git
+zenergy-dkms-git
+
+# 游戏和会话
+gamescope-sk
+gamescope-session-sk-git
+gamescope-session-steam-sk-git
+gamescope-session-steam-plus-git
+steam_notif_daemon
+
+# 系统工具
+downgrade
+frzr-sk
+networkd-dispatcher
+pikaur
+refind-r
+sk-boot-to-windows
+sk-chos-tool
+v4l-utils-git
+waydroid-script-git
+yay-git
+
+# 32位库和兼容性
+lib32-extest
+
+# 字体和输入法
+kanit-font
+noto-fonts-cjk-fontconfig
+
+# 应用程序
+flatseal
+moonlight-qt-axi
+nbfc-linux
+onedrive-abraunegg
+protonplus
+protontricks
+python-pyclip
+sx
+tsukimi-bin
+vboard
+
+# KDE 主题
+plasma6-themes-vapor-steamos
+
+# GNOME Shell 扩展
+gnome-shell-extension-bluetooth-battery-meter-git
+gnome-shell-extension-dash-to-dock
+gnome-shell-extension-enhanced-osk-git
+gnome-shell-extension-screen-autorotate
+
+# Nautilus 扩展
+nautilus-copy-path
+nautilus-open-any-terminal
+
+# Hyprland 工具
+hyprshot
+tofi
+wlogout-git
+

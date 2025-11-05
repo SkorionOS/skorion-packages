@@ -1,0 +1,367 @@
+name: Build Packages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0'  # 每周日 00:00 UTC
+  workflow_dispatch:
+
+env:
+  REPO_NAME: skorion
+
+jobs:
+  # ===========================================================================
+  # Job 1: 检测更新并列出需要构建的包
+  # ===========================================================================
+  list-packages:
+    name: Detect Updates
+    runs-on: ubuntu-latest
+    outputs:
+      aur-packages: ${{ steps.set-aur.outputs.matrix }}
+      local-packages: ${{ steps.set-local.outputs.matrix }}
+      has-updates: ${{ steps.check-updates.outputs.has-updates }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+      
+      - name: Check AUR updates
+        id: check-updates
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          bash scripts/check-updates.sh
+          
+          # 检查是否有需要构建的包
+          if [ -s updated-packages.txt ]; then
+            echo "has-updates=true" >> $GITHUB_OUTPUT
+          else
+            echo "has-updates=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: List AUR packages to build
+        id: set-aur
+        run: |
+          if [ -s updated-packages.txt ]; then
+            # 只构建有更新的包
+            packages=$(cat updated-packages.txt | jq -R -s -c 'split("\n")[:-1]')
+          else
+            # 没有更新，返回空列表
+            packages="[]"
+          fi
+          echo "matrix=$packages" >> $GITHUB_OUTPUT
+          echo "AUR packages to build: $packages"
+      
+      - name: List local packages
+        id: set-local
+        run: |
+          # 本地包始终构建（通常很少）
+          if [ -d "local" ]; then
+            packages=$(find local -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | jq -R -s -c 'split("\n")[:-1]')
+          else
+            packages="[]"
+          fi
+          echo "matrix=$packages" >> $GITHUB_OUTPUT
+          echo "Local packages: $packages"
+
+  # ===========================================================================
+  # Job 2: 并行构建 AUR 包
+  # ===========================================================================
+  build-aur:
+    needs: list-packages
+    name: Build AUR
+    runs-on: ubuntu-latest
+    if: needs.list-packages.outputs.aur-packages != '[]'
+    container:
+      image: archlinux:latest
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        package: ${{ fromJson(needs.list-packages.outputs.aur-packages) }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup build environment
+        run: |
+          # 更新系统
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git sudo
+          
+          # 创建 builder 用户
+          useradd -m -G wheel builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          
+          # 安装 pikaur
+          sudo -u builder bash -c "
+            cd /tmp
+            git clone https://aur.archlinux.org/pikaur.git
+            cd pikaur
+            makepkg -si --noconfirm
+          "
+          
+          # 授权
+          chown -R builder:builder $GITHUB_WORKSPACE
+      
+      - name: Build package
+        env:
+          PACKAGE_NAME: ${{ matrix.package }}
+          OUTPUT_DIR: ${{ github.workspace }}/output
+          WORK_DIR: /tmp/build
+        run: |
+          sudo -u builder bash -c "
+            export OUTPUT_DIR='$OUTPUT_DIR'
+            export WORK_DIR='$WORK_DIR'
+            export GITHUB_WORKSPACE='$GITHUB_WORKSPACE'
+            bash $GITHUB_WORKSPACE/scripts/build-single-package.sh '$PACKAGE_NAME' aur
+          "
+      
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aur-${{ matrix.package }}
+          path: output/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+
+  # ===========================================================================
+  # Job 3: 并行构建本地包
+  # ===========================================================================
+  build-local:
+    needs: list-packages
+    name: Build Local
+    runs-on: ubuntu-latest
+    if: needs.list-packages.outputs.local-packages != '[]'
+    container:
+      image: archlinux:latest
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        package: ${{ fromJson(needs.list-packages.outputs.local-packages) }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup build environment
+        run: |
+          # 更新系统
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git sudo
+          
+          # 创建 builder 用户
+          useradd -m -G wheel builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          
+          # 安装 pikaur
+          sudo -u builder bash -c "
+            cd /tmp
+            git clone https://aur.archlinux.org/pikaur.git
+            cd pikaur
+            makepkg -si --noconfirm
+          "
+          
+          chown -R builder:builder $GITHUB_WORKSPACE
+      
+      - name: Build package
+        env:
+          PACKAGE_NAME: ${{ matrix.package }}
+          OUTPUT_DIR: ${{ github.workspace }}/output
+          WORK_DIR: ${{ github.workspace }}/work
+        run: |
+          sudo -u builder bash -c "
+            export OUTPUT_DIR='$OUTPUT_DIR'
+            export WORK_DIR='$WORK_DIR'
+            export GITHUB_WORKSPACE='$GITHUB_WORKSPACE'
+            bash $GITHUB_WORKSPACE/scripts/build-single-package.sh '$PACKAGE_NAME' local
+          "
+      
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-${{ matrix.package }}
+          path: output/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+
+  # ===========================================================================
+  # Job 4: 收集所有包并生成完整仓库数据库
+  # ===========================================================================
+  generate-repo:
+    needs: [list-packages, build-aur, build-local]
+    name: Generate Repository
+    runs-on: ubuntu-latest
+    if: always() && (needs.build-aur.result == 'success' || needs.build-local.result == 'success' || needs.list-packages.outputs.has-updates == 'false')
+    container:
+      image: archlinux:latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm pacman-contrib curl jq
+      
+      - name: Download new build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+        continue-on-error: true
+      
+      - name: Collect new packages
+        run: |
+          mkdir -p output
+          if [ -d "artifacts" ]; then
+            find artifacts/ -name "*.pkg.tar.zst" -exec cp {} output/ \;
+          fi
+          echo "==> 新构建的包:"
+          ls -lh output/ || echo "  无新包"
+      
+      - name: Download existing packages from latest release
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          echo "==> 下载 latest Release 中的现有包"
+          
+          # 获取 latest release 信息
+          LATEST_JSON=$(curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" || echo "{}")
+          
+          # 检查是否存在
+          if echo "$LATEST_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
+            echo "==> 首次构建，无现有包"
+            exit 0
+          fi
+          
+          # 下载所有 .pkg.tar.zst 文件
+          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
+            filename=$(basename "$url")
+            
+            # 跳过已经构建的包（新包优先）
+            pkg_base=$(echo "$filename" | sed 's/^\[.*\]-//')
+            if [ -f "output/$filename" ] || ls output/*"$pkg_base" 2>/dev/null | grep -q .; then
+              echo "  跳过 $filename (已有新版本)"
+              continue
+            fi
+            
+            echo "  下载 $filename"
+            curl -sL "$url" -o "output/$filename"
+          done
+          
+          echo "==> 完整包列表:"
+          ls -lh output/
+      
+      - name: Generate repository database
+        env:
+          OUTPUT_DIR: ./output
+        run: |
+          bash scripts/generate-repo.sh
+      
+      - name: Upload repository artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository
+          path: |
+            output/*.pkg.tar.zst
+            output/*.db*
+            output/*.files*
+            output/packages.json
+          retention-days: 7
+
+  # ===========================================================================
+  # Job 5: 发布到 GitHub Releases
+  # ===========================================================================
+  release:
+    needs: generate-repo
+    name: Publish Release
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download repository artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: repository
+          path: output/
+      
+      - name: Generate release info
+        id: release-info
+        run: |
+          echo "date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
+          echo "datetime=$(date +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+          
+          # 统计包数量
+          pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          echo "package_count=$pkg_count" >> $GITHUB_OUTPUT
+      
+      - name: Update latest release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest
+          name: Latest Build
+          body: |
+            **最新构建的 SkorionOS 包仓库**
+            
+            - 构建时间: ${{ steps.release-info.outputs.datetime }}
+            - 提交: `${{ github.sha }}`
+            - 包数量: ${{ steps.release-info.outputs.package_count }}
+            
+            ## 使用方法
+            
+            在 `/etc/pacman.conf` 添加：
+            ```ini
+            [skorion]
+            SigLevel = Optional TrustAll
+            Server = https://github.com/${{ github.repository }}/releases/download/latest
+            ```
+            
+            然后执行：
+            ```bash
+            sudo pacman -Sy
+            sudo pacman -S <package-name>
+            ```
+          files: output/*
+          fail_on_unmatched_files: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Create weekly snapshot
+        if: github.event_name == 'schedule'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.release-info.outputs.date }}
+          name: Weekly Snapshot - ${{ steps.release-info.outputs.date }}
+          body: |
+            **每周归档快照**
+            
+            - 构建时间: ${{ steps.release-info.outputs.datetime }}
+            - 提交: `${{ github.sha }}`
+            - 包数量: ${{ steps.release-info.outputs.package_count }}
+            
+            此版本为每周自动创建的快照，可用于回滚到特定日期的包集合。
+            
+            ## 使用方法
+            
+            在 `/etc/pacman.conf` 添加：
+            ```ini
+            [skorion]
+            SigLevel = Optional TrustAll
+            Server = https://github.com/${{ github.repository }}/releases/download/${{ steps.release-info.outputs.date }}
+            ```
+          files: output/*
+          fail_on_unmatched_files: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
