@@ -8,6 +8,12 @@ on:
   schedule:
     - cron: '0 0 * * 0'  # 每周日 00:00 UTC
   workflow_dispatch:
+    inputs:
+      create_snapshot:
+        description: '创建带日期的快照 Release'
+        required: false
+        type: boolean
+        default: false
 
 env:
   REPO_NAME: skorion
@@ -22,6 +28,7 @@ jobs:
     outputs:
       aur-packages: ${{ steps.set-aur.outputs.matrix }}
       local-packages: ${{ steps.set-local.outputs.matrix }}
+      all-packages: ${{ steps.set-all.outputs.matrix }}
       has-updates: ${{ steps.check-updates.outputs.has-updates }}
     steps:
       - uses: actions/checkout@v4
@@ -62,30 +69,73 @@ jobs:
       - name: List local packages
         id: set-local
         run: |
-          # 本地包始终构建（通常很少）
-          if [ -d "local" ]; then
-            packages=$(find local -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | jq -R -s -c 'split("\n")[:-1]')
+          if [ ! -d "local" ]; then
+            echo "matrix=[]" >> $GITHUB_OUTPUT
+            echo "Local packages: []"
+            exit 0
+          fi
+          
+          # 1. 检测有 git 变动的包
+          changed_dirs=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep '^local/' | cut -d'/' -f2 | sort -u || echo "")
+          
+          # 2. 检测有 pkgver() 函数的包（动态版本，每次都构建）
+          dynamic_pkgs=""
+          for pkg_dir in local/*/; do
+            pkg_name=$(basename "$pkg_dir")
+            if [ -f "$pkg_dir/PKGBUILD" ]; then
+              if grep -qE '^\s*pkgver\s*\(\)' "$pkg_dir/PKGBUILD"; then
+                dynamic_pkgs="$dynamic_pkgs$pkg_name"$'\n'
+                echo "  → $pkg_name 有 pkgver() 函数，需要构建"
+              fi
+            fi
+          done
+          
+          # 3. 合并两个列表并去重
+          all_pkgs=$(echo -e "${changed_dirs}\n${dynamic_pkgs}" | sort -u | grep -v '^$' || echo "")
+          
+          if [ -n "$all_pkgs" ]; then
+            packages=$(echo "$all_pkgs" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "==> 需要构建的本地包:"
+            echo "$all_pkgs"
           else
             packages="[]"
+            echo "==> 本地包无需构建"
           fi
+          
           echo "matrix=$packages" >> $GITHUB_OUTPUT
-          echo "Local packages: $packages"
+          echo "Local packages to build: $packages"
+      
+      - name: Merge package lists
+        id: set-all
+        run: |
+          # 合并 AUR 和本地包列表，添加类型标记
+          aur_packages='${{ steps.set-aur.outputs.matrix }}'
+          local_packages='${{ steps.set-local.outputs.matrix }}'
+          
+          # 为每个包添加类型字段
+          all_packages=$(jq -n \
+            --argjson aur "$aur_packages" \
+            --argjson local "$local_packages" \
+            '($aur | map({package: ., type: "aur"})) + ($local | map({package: ., type: "local"}))')
+          
+          echo "matrix=$all_packages" >> $GITHUB_OUTPUT
+          echo "All packages to build: $all_packages"
 
   # ===========================================================================
-  # Job 2: 并行构建 AUR 包
+  # Job 2: 并行构建所有包（AUR + 本地）
   # ===========================================================================
-  build-aur:
+  build-packages:
     needs: list-packages
-    name: Build AUR
+    name: Build ${{ matrix.type }} - ${{ matrix.package }}
     runs-on: ubuntu-latest
-    if: needs.list-packages.outputs.aur-packages != '[]'
+    if: needs.list-packages.outputs.all-packages != '[]'
     container:
       image: archlinux:latest
     strategy:
       fail-fast: false
       max-parallel: 20
       matrix:
-        package: ${{ fromJson(needs.list-packages.outputs.aur-packages) }}
+        include: ${{ fromJson(needs.list-packages.outputs.all-packages) }}
     
     steps:
       - uses: actions/checkout@v4
@@ -108,12 +158,12 @@ jobs:
             makepkg -si --noconfirm
           "
           
-          # 授权
           chown -R builder:builder $GITHUB_WORKSPACE
       
       - name: Build package
         env:
           PACKAGE_NAME: ${{ matrix.package }}
+          PACKAGE_TYPE: ${{ matrix.type }}
           OUTPUT_DIR: ${{ github.workspace }}/output
           WORK_DIR: /tmp/build
         run: |
@@ -121,85 +171,25 @@ jobs:
             export OUTPUT_DIR='$OUTPUT_DIR'
             export WORK_DIR='$WORK_DIR'
             export GITHUB_WORKSPACE='$GITHUB_WORKSPACE'
-            bash $GITHUB_WORKSPACE/scripts/build-single-package.sh '$PACKAGE_NAME' aur
+            bash $GITHUB_WORKSPACE/scripts/build-single-package.sh '$PACKAGE_NAME' '$PACKAGE_TYPE'
           "
       
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: aur-${{ matrix.package }}
+          name: ${{ matrix.type }}-${{ matrix.package }}
           path: output/*.pkg.tar.zst
           if-no-files-found: error
           retention-days: 1
 
   # ===========================================================================
-  # Job 3: 并行构建本地包
-  # ===========================================================================
-  build-local:
-    needs: list-packages
-    name: Build Local
-    runs-on: ubuntu-latest
-    if: needs.list-packages.outputs.local-packages != '[]'
-    container:
-      image: archlinux:latest
-    strategy:
-      fail-fast: false
-      max-parallel: 20
-      matrix:
-        package: ${{ fromJson(needs.list-packages.outputs.local-packages) }}
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup build environment
-        run: |
-          # 更新系统
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git sudo
-          
-          # 创建 builder 用户
-          useradd -m -G wheel builder
-          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          
-          # 安装 pikaur
-          sudo -u builder bash -c "
-            cd /tmp
-            git clone https://aur.archlinux.org/pikaur.git
-            cd pikaur
-            makepkg -si --noconfirm
-          "
-          
-          chown -R builder:builder $GITHUB_WORKSPACE
-      
-      - name: Build package
-        env:
-          PACKAGE_NAME: ${{ matrix.package }}
-          OUTPUT_DIR: ${{ github.workspace }}/output
-          WORK_DIR: ${{ github.workspace }}/work
-        run: |
-          sudo -u builder bash -c "
-            export OUTPUT_DIR='$OUTPUT_DIR'
-            export WORK_DIR='$WORK_DIR'
-            export GITHUB_WORKSPACE='$GITHUB_WORKSPACE'
-            bash $GITHUB_WORKSPACE/scripts/build-single-package.sh '$PACKAGE_NAME' local
-          "
-      
-      - name: Upload package artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: local-${{ matrix.package }}
-          path: output/*.pkg.tar.zst
-          if-no-files-found: error
-          retention-days: 1
-
-  # ===========================================================================
-  # Job 4: 收集所有包并生成完整仓库数据库
+  # Job 3: 收集所有包并生成完整仓库数据库
   # ===========================================================================
   generate-repo:
-    needs: [list-packages, build-aur, build-local]
+    needs: [list-packages, build-packages]
     name: Generate Repository
     runs-on: ubuntu-latest
-    if: always() && (needs.build-aur.result == 'success' || needs.build-local.result == 'success' || needs.list-packages.outputs.has-updates == 'false')
+    if: always() && (needs.build-packages.result == 'success' || needs.list-packages.outputs.has-updates == 'false')
     container:
       image: archlinux:latest
     
@@ -342,8 +332,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Create weekly snapshot
-        if: github.event_name == 'schedule'
+      - name: Create dated snapshot
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.release-info.outputs.date }}
