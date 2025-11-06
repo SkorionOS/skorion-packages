@@ -127,13 +127,24 @@ else
         url_path=$(echo "$pkg_info" | jq -r '.URLPath')
         
         if [ -n "$url_path" ] && [ "$url_path" != "null" ]; then
-            pkgbuild=$(curl -s "https://aur.archlinux.org${url_path}" 2>/dev/null | tar -xzO --wildcards '*/PKGBUILD' 2>/dev/null || echo "")
-            
-            if echo "$pkgbuild" | grep -qE '^\s*pkgver\s*\(\)'; then
-                echo "  ✓ $pkg_name: 动态版本包（有 pkgver() 函数），需要构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-                return
+            # 解压到临时目录，避免管道和 tar -xzO 的问题
+            local tmpdir
+            tmpdir=$(mktemp -d)
+            if curl -sL "https://aur.archlinux.org${url_path}" 2>/dev/null | tar -xz -C "$tmpdir" 2>/dev/null; then
+                # 查找 PKGBUILD 文件
+                local pkgbuild_file
+                pkgbuild_file=$(find "$tmpdir" -name PKGBUILD -type f | head -1)
+                
+                if [ -n "$pkgbuild_file" ] && [ -f "$pkgbuild_file" ]; then
+                    if grep -qE '^\s*pkgver\s*\(\)' "$pkgbuild_file"; then
+                        echo "  ✓ $pkg_name: 动态版本包（有 pkgver() 函数），需要构建"
+                        rm -rf "$tmpdir"
+                        echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                        return
+                    fi
+                fi
             fi
+            rm -rf "$tmpdir"
         fi
         
         # 版本对比
