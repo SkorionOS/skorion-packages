@@ -300,15 +300,15 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.release-info.outputs.date }}
-          name: Weekly Snapshot - ${{ steps.release-info.outputs.date }}
+          name: Snapshot - ${{ steps.release-info.outputs.date }}
           body: |
-            **每周归档快照**
+            **归档快照**
             
             - 构建时间: ${{ steps.release-info.outputs.datetime }}
             - 提交: `${{ github.sha }}`
             - 包数量: ${{ steps.release-info.outputs.package_count }}
             
-            此版本为每周自动创建的快照，可用于回滚到特定日期的包集合。
+            此版本为自动创建的快照，可用于回滚到特定日期的包集合。
             
             ## 使用方法
             
