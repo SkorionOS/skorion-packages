@@ -2,7 +2,7 @@
 # 清理 GitHub Release 中的旧版本包
 # 只保留每个包的最新版本
 
-set -e
+set -ex
 
 GITHUB_TOKEN="${GITHUB_TOKEN}"
 REPO_FULL="${REPO_FULL}"
@@ -97,7 +97,7 @@ echo "  检查 release 中的现有文件..."
 deleted_count=0
 kept_count=0
 
-echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | "\(.id)|\(.name)"' | \
+# 避免使用管道（会创建子shell），使用进程替换
 while IFS='|' read -r asset_id asset_name; do
     pkg_name=$(extract_package_name "$asset_name")
     
@@ -111,7 +111,7 @@ while IFS='|' read -r asset_id asset_name; do
             -w "%{http_code}" -o /dev/null -s)
         
         if [ "$http_code" = "204" ]; then
-            ((deleted_count++))
+            deleted_count=$((deleted_count + 1))
         else
             echo "      警告: 删除失败 (HTTP $http_code)"
         fi
@@ -120,9 +120,9 @@ while IFS='|' read -r asset_id asset_name; do
         sleep 0.3
     else
         echo "    ✓ 保留: $asset_name (无新版本)"
-        ((kept_count++))
+        kept_count=$((kept_count + 1))
     fi
-done
+done < <(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | "\(.id)|\(.name)"')
 
 echo ""
 echo "==> 清理完成"
