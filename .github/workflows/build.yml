@@ -168,7 +168,7 @@ jobs:
     needs: [list-packages, build-packages]
     name: Generate Repository
     runs-on: ubuntu-latest
-    if: always() && (needs.build-packages.result == 'success' || needs.list-packages.outputs.has-updates == 'false')
+    if: always() && needs.build-packages.result != 'failure'
     container:
       image: archlinux:latest
     
@@ -278,6 +278,15 @@ jobs:
           # 统计包数量
           pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
           echo "package_count=$pkg_count" >> $GITHUB_OUTPUT
+      
+      - name: Clean old package versions from latest release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_FULL: ${{ github.repository }}
+          OUTPUT_DIR: ./output
+          RELEASE_TAG: latest
+        run: |
+          bash scripts/clean-old-assets.sh
       
       - name: Update latest release
         uses: softprops/action-gh-release@v1

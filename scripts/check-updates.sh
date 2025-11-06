@@ -68,19 +68,38 @@ if [ "$FIRST_BUILD" = false ]; then
                     # 将 epoch- 转换回 epoch:
                     pkgver="${epoch}:${base_ver}"
                     pkg_ver="${pkgver}-${pkgrel}"
-                    OLD_VERSIONS[$pkg_name]="$pkg_ver"
-                    echo "  旧: $pkg_name = $pkg_ver"
+                    
+                    # 如果已存在该包，使用 vercmp 比较版本，只保留最新的
+                    if [ -n "${OLD_VERSIONS[$pkg_name]}" ]; then
+                        if vercmp "$pkg_ver" "${OLD_VERSIONS[$pkg_name]}" -gt 0; then
+                            OLD_VERSIONS[$pkg_name]="$pkg_ver"
+                        fi
+                    else
+                        OLD_VERSIONS[$pkg_name]="$pkg_ver"
+                    fi
                 elif [[ "$pkg_with_ver" =~ ^(.+)-(.+)$ ]]; then
                     # 无 epoch 的情况
                     pkg_name="${BASH_REMATCH[1]}"
                     pkgver="${BASH_REMATCH[2]}"
                     pkg_ver="${pkgver}-${pkgrel}"
-                    OLD_VERSIONS[$pkg_name]="$pkg_ver"
-                    echo "  旧: $pkg_name = $pkg_ver"
+                    
+                    # 如果已存在该包，使用 vercmp 比较版本，只保留最新的
+                    if [ -n "${OLD_VERSIONS[$pkg_name]}" ]; then
+                        if vercmp "$pkg_ver" "${OLD_VERSIONS[$pkg_name]}" -gt 0; then
+                            OLD_VERSIONS[$pkg_name]="$pkg_ver"
+                        fi
+                    else
+                        OLD_VERSIONS[$pkg_name]="$pkg_ver"
+                    fi
                 fi
             fi
         fi
     done < <(jq -r '.packages[]' old-packages.json)
+    
+    # 输出最终的旧版本列表
+    for pkg_name in "${!OLD_VERSIONS[@]}"; do
+        echo "  旧: $pkg_name = ${OLD_VERSIONS[$pkg_name]}"
+    done | sort
 fi
 
 # ==============================================================================
