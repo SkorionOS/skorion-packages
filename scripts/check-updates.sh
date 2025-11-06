@@ -110,7 +110,31 @@ else
         echo "${pkg}=${OLD_VERSIONS[$pkg]}" >> "$temp_dir/old_versions.txt"
     done
     
-    # 3. 定义并行检查函数
+    # 3. 定义公共函数：计算 pkgver() 的真实版本
+    compute_pkgver() {
+        local pkgbuild_dir="$1"
+        
+        if [ ! -f "$pkgbuild_dir/PKGBUILD" ]; then
+            return 1
+        fi
+        
+        if ! command -v makepkg &>/dev/null; then
+            return 1
+        fi
+        
+        # 使用 makepkg --nobuild 下载源码并执行 pkgver()
+        if (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>/dev/null); then
+            # 重新读取更新后的版本
+            cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "${pkgver}-${pkgrel}"'
+            return 0
+        fi
+        
+        return 1
+    }
+    
+    export -f compute_pkgver
+    
+    # 4. 定义并行检查函数
     check_aur_package_parallel() {
         local pkg_name="$1"
         local temp_dir="$2"
@@ -127,22 +151,51 @@ else
         url_path=$(echo "$pkg_info" | jq -r '.URLPath')
         
         if [ -n "$url_path" ] && [ "$url_path" != "null" ]; then
-            # 解压到临时目录，避免管道和 tar -xzO 的问题
-            local tmpdir
+            # 先下载到文件再解压，避免管道方式的不可靠性
+            local tmpdir tmpfile
             tmpdir=$(mktemp -d)
-            if curl -sL "https://aur.archlinux.org${url_path}" 2>/dev/null | tar -xz -C "$tmpdir" 2>/dev/null; then
+            tmpfile=$(mktemp)
+            
+            if curl -sL "https://aur.archlinux.org${url_path}" -o "$tmpfile" 2>/dev/null && \
+               tar -xz -C "$tmpdir" -f "$tmpfile" 2>/dev/null; then
+                rm -f "$tmpfile"
                 # 查找 PKGBUILD 文件
                 local pkgbuild_file
                 pkgbuild_file=$(find "$tmpdir" -name PKGBUILD -type f | head -1)
                 
                 if [ -n "$pkgbuild_file" ] && [ -f "$pkgbuild_file" ]; then
                     if grep -qE '^\s*pkgver\s*\(\)' "$pkgbuild_file"; then
-                        echo "  ✓ $pkg_name: 动态版本包（有 pkgver() 函数），需要构建"
+                        echo "  → $pkg_name: 检测到 pkgver() 函数，计算真实版本..."
+                        
+                        local pkgbuild_dir real_ver
+                        pkgbuild_dir=$(dirname "$pkgbuild_file")
+                        real_ver=$(compute_pkgver "$pkgbuild_dir")
+                        
                         rm -rf "$tmpdir"
-                        echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                        
+                        if [ -n "$real_ver" ]; then
+                            # 成功获取真实版本，进行对比
+                            old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
+                            
+                            if [ -z "$old_ver" ]; then
+                                echo "  ✓ $pkg_name: 新包 ($real_ver)，需要构建"
+                                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                            elif [ "$real_ver" != "$old_ver" ]; then
+                                echo "  ✓ $pkg_name: 版本变化 $old_ver → $real_ver，需要构建"
+                                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                            else
+                                echo "  → $pkg_name: 版本未变化 ($real_ver)"
+                            fi
+                        else
+                            # 无法获取真实版本，保守构建
+                            echo "  ✓ $pkg_name: 无法计算版本，保守构建"
+                            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                        fi
                         return
                     fi
                 fi
+            else
+                rm -f "$tmpfile"
             fi
             rm -rf "$tmpdir"
         fi
@@ -164,10 +217,10 @@ else
     
     export -f check_aur_package_parallel
     
-    # 4. 并行检查（10 个并发）
-    echo "  → 并行检查包更新（10 并发）"
+    # 4. 并行检查（5 个并发，因为 makepkg --nobuild 会下载源码）
+    echo "  → 并行检查包更新（5 并发）"
     grep -v '^#' aur.txt | grep -v '^$' | \
-        xargs -I {} -P 10 bash -c 'check_aur_package_parallel "$@"' _ {} "$temp_dir"
+        xargs -I {} -P 5 bash -c 'check_aur_package_parallel "$@"' _ {} "$temp_dir"
     
     # 5. 收集结果
     cat "$temp_dir"/*.build 2>/dev/null > "$AUR_OUTPUT_FILE" || true
@@ -229,8 +282,29 @@ else
         
         # 检查是否有 pkgver() 函数
         if grep -qE '^\s*pkgver\s*\(\)' "$pkg_dir/PKGBUILD"; then
-            echo "  ✓ $pkg_name: 有 pkgver() 函数，需要构建"
-            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            echo "  → $pkg_name: 检测到 pkgver() 函数，计算真实版本..."
+            
+            local real_ver
+            real_ver=$(compute_pkgver "$pkg_dir")
+            
+            if [ -n "$real_ver" ]; then
+                # 成功获取真实版本，进行对比
+                old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
+                
+                if [ -z "$old_ver" ]; then
+                    echo "  ✓ $pkg_name: 新包 ($real_ver)，需要构建"
+                    echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                elif [ "$real_ver" != "$old_ver" ]; then
+                    echo "  ✓ $pkg_name: 版本变化 $old_ver → $real_ver，需要构建"
+                    echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                else
+                    echo "  → $pkg_name: 版本未变化 ($real_ver)"
+                fi
+            else
+                # 无法获取真实版本，保守构建
+                echo "  ✓ $pkg_name: 无法计算版本，保守构建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            fi
             return
         fi
         
