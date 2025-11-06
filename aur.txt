@@ -47,7 +47,6 @@ lib32-extest
 
 # 字体和输入法
 ibus-autostart
-kanit-font
 noto-fonts-cjk-fontconfig
 
 # 应用程序
