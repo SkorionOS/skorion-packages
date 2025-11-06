@@ -201,37 +201,56 @@ jobs:
           echo "==> 新构建的包:"
           ls -lh output/ || echo "  无新包"
       
-      - name: Download existing packages from latest release
+      - name: Download existing data from latest release
         env:
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
+          CREATE_SNAPSHOT: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot) }}
         run: |
-          echo "==> 下载 latest Release 中的现有包"
+          echo "==> 下载 latest Release 中的现有数据"
           
           # 获取 latest release 信息
           LATEST_JSON=$(curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" || echo "{}")
           
           # 检查是否存在
           if echo "$LATEST_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
-            echo "==> 首次构建，无现有包"
+            echo "==> 首次构建，无现有数据"
             exit 0
           fi
           
-          # 下载所有 .pkg.tar.zst 文件
-          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
-            filename=$(basename "$url")
+          if [ "$CREATE_SNAPSHOT" = "true" ]; then
+            # 创建快照：下载所有包（需要完整副本）
+            echo "==> 快照模式：下载所有包文件"
+            echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
+              filename=$(basename "$url")
+              
+              # 跳过已存在的包（新构建优先）
+              if [ -f "output/$filename" ]; then
+                echo "  跳过 $filename (已有新版本)"
+                continue
+              fi
+              
+              echo "  下载 $filename"
+              curl -sL "$url" -o "output/$filename"
+            done
+          else
+            # 日常更新：只下载数据库文件（增量更新）
+            echo "==> 增量模式：只下载数据库文件"
+            echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | test("\\.(db|files)")) | .browser_download_url' | while read url; do
+              filename=$(basename "$url")
+              echo "  下载 $filename"
+              curl -sL "$url" -o "output/$filename" || true
+            done
             
-            # 跳过已存在的包（新构建优先）
-            if [ -f "output/$filename" ]; then
-              echo "  跳过 $filename (已有新版本)"
-              continue
+            # 下载 packages.json（用于版本检测）
+            packages_json_url=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name == "packages.json") | .browser_download_url')
+            if [ -n "$packages_json_url" ] && [ "$packages_json_url" != "null" ]; then
+              echo "  下载 packages.json"
+              curl -sL "$packages_json_url" -o "output/packages.json.old" || true
             fi
-            
-            echo "  下载 $filename"
-            curl -sL "$url" -o "output/$filename"
-          done
+          fi
           
-          echo "==> 完整包列表:"
+          echo "==> 当前文件列表:"
           ls -lh output/
       
       - name: Generate repository database
@@ -263,6 +282,8 @@ jobs:
       contents: write
     
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download repository artifacts
         uses: actions/download-artifact@v4
         with:
