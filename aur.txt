@@ -66,9 +66,12 @@ qqmusic-bin
 sx
 tsukimi-bin
 vboard
+ventoy-bin
 xviewer
 wechat-bin
 wechat-universal-bwrap
+
+winboat-bin
 
 # KDE 主题
 plasma6-themes-vapor-steamos
