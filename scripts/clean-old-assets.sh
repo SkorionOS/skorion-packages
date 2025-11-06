@@ -2,7 +2,7 @@
 # 清理 GitHub Release 中的旧版本包
 # 只保留每个包的最新版本
 
-set -ex
+set -e
 
 GITHUB_TOKEN="${GITHUB_TOKEN}"
 REPO_FULL="${REPO_FULL}"
