@@ -71,6 +71,9 @@ xviewer
 wechat-bin
 wechat-universal-bwrap
 
+# 办公
+wps-office-cn
+
 winboat-bin
 
 # KDE 主题
