@@ -42,13 +42,30 @@ if [ "$FIRST_BUILD" = false ]; then
     echo "==> 分析旧版本"
     
     while IFS= read -r pkg_full; do
-        # 格式: packagename-1.2.3-1-x86_64
-        # 提取包名和版本
-        if [[ "$pkg_full" =~ ^(.+)-([0-9].+)-([0-9]+)-([^-]+)$ ]]; then
-            pkg_name="${BASH_REMATCH[1]}"
-            pkg_ver="${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
-            OLD_VERSIONS[$pkg_name]="$pkg_ver"
-            echo "  旧: $pkg_name = $pkg_ver"
+        # 格式: packagename-[epoch:]pkgver-pkgrel-arch
+        # 从右往左解析，先去掉 arch 和 pkgrel，再提取 pkgver（可能包含 epoch）
+        
+        # 去掉扩展名（如果有）
+        pkg_full="${pkg_full%.pkg.tar.*}"
+        
+        # 从右往左匹配: 最后一个 - 后面是 arch
+        if [[ "$pkg_full" =~ ^(.+)-([^-]+)$ ]]; then
+            pkg_without_arch="${BASH_REMATCH[1]}"
+            
+            # 再匹配一次: 最后一个 - 后面是 pkgrel
+            if [[ "$pkg_without_arch" =~ ^(.+)-([0-9]+)$ ]]; then
+                pkg_with_ver="${BASH_REMATCH[1]}"
+                pkgrel="${BASH_REMATCH[2]}"
+                
+                # 再匹配一次: 最后一个 - 后面是 pkgver（可能包含 epoch）
+                if [[ "$pkg_with_ver" =~ ^(.+)-([0-9].*)$ ]]; then
+                    pkg_name="${BASH_REMATCH[1]}"
+                    pkgver="${BASH_REMATCH[2]}"
+                    pkg_ver="${pkgver}-${pkgrel}"
+                    OLD_VERSIONS[$pkg_name]="$pkg_ver"
+                    echo "  旧: $pkg_name = $pkg_ver"
+                fi
+            fi
         fi
     done < <(jq -r '.packages[]' old-packages.json)
 fi
