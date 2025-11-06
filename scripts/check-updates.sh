@@ -42,8 +42,9 @@ if [ "$FIRST_BUILD" = false ]; then
     echo "==> 分析旧版本"
     
     while IFS= read -r pkg_full; do
-        # 格式: packagename-[epoch:]pkgver-pkgrel-arch
-        # 从右往左解析，先去掉 arch 和 pkgrel，再提取 pkgver（可能包含 epoch）
+        # 格式: packagename-[epoch-]pkgver-pkgrel-arch
+        # 注意: epoch 中的 : 在文件名中被替换为 -，例如 5: 变成 5-
+        # 所以 linuxqq-5:3.2.21-1 会变成 linuxqq-5--3.2.21-1（双连字符）
         
         # 去掉扩展名（如果有）
         pkg_full="${pkg_full%.pkg.tar.*}"
@@ -57,8 +58,20 @@ if [ "$FIRST_BUILD" = false ]; then
                 pkg_with_ver="${BASH_REMATCH[1]}"
                 pkgrel="${BASH_REMATCH[2]}"
                 
-                # 再匹配一次: 最后一个 - 后面是 pkgver（可能包含 epoch 或 v 前缀）
-                if [[ "$pkg_with_ver" =~ ^(.+)-(.+)$ ]]; then
+                # 再匹配一次: 最后一个 - 后面是 pkgver
+                # 但要特殊处理 epoch，格式是 数字--版本
+                if [[ "$pkg_with_ver" =~ ^(.+)-([0-9]+)--(.+)$ ]]; then
+                    # 有 epoch 的情况: packagename-epoch--pkgver
+                    pkg_name="${BASH_REMATCH[1]}"
+                    epoch="${BASH_REMATCH[2]}"
+                    base_ver="${BASH_REMATCH[3]}"
+                    # 将 epoch- 转换回 epoch:
+                    pkgver="${epoch}:${base_ver}"
+                    pkg_ver="${pkgver}-${pkgrel}"
+                    OLD_VERSIONS[$pkg_name]="$pkg_ver"
+                    echo "  旧: $pkg_name = $pkg_ver"
+                elif [[ "$pkg_with_ver" =~ ^(.+)-(.+)$ ]]; then
+                    # 无 epoch 的情况
                     pkg_name="${BASH_REMATCH[1]}"
                     pkgver="${BASH_REMATCH[2]}"
                     pkg_ver="${pkgver}-${pkgrel}"
