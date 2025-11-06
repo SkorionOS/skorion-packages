@@ -155,52 +155,42 @@ else
     
     export -f compute_pkgver
     
-    # 4. 下载并解压 AUR PKGBUILD
+    # 4. 下载 AUR PKGBUILD（优先 git clone）
     download_and_extract_pkgbuild() {
         local url_path="$1"
         local output_dir="$2"
         local pkg_name="$3"
         
+        # 方案1: 优先使用 git clone（更可靠）
+        if git clone --depth 1 "https://aur.archlinux.org/${pkg_name}.git" "$output_dir/$pkg_name" >/dev/null 2>&1; then
+            return 0
+        fi
+        
+        # 方案2: fallback 到 snapshot（如果 git clone 失败）
         local tmpfile
         tmpfile=$(mktemp)
         
-        # 下载（保留错误信息用于调试）
-        echo "    [下载] https://aur.archlinux.org${url_path}" >&2
-        local curl_err
-        curl_err=$(mktemp)
-        if ! curl -sL "https://aur.archlinux.org${url_path}" -o "$tmpfile" 2>"$curl_err"; then
-            echo "    [错误] curl 下载失败" >&2
-            cat "$curl_err" >&2
-            rm -f "$tmpfile" "$curl_err"
-            return 1
-        fi
-        rm -f "$curl_err"
-        
-        local file_size
-        file_size=$(stat -f%z "$tmpfile" 2>/dev/null || stat -c%s "$tmpfile" 2>/dev/null || echo 0)
-        echo "    [下载] 完成，大小: $file_size bytes" >&2
-        
-        # 检查文件大小（太小可能是错误页面）
-        if [ "$file_size" -lt 500 ]; then
-            echo "    [错误] 文件太小，可能是错误响应" >&2
+        if ! curl -sfL "https://aur.archlinux.org${url_path}" -o "$tmpfile" 2>/dev/null; then
             rm -f "$tmpfile"
             return 1
         fi
         
-        # 解压（保留错误信息）
-        echo "    [解压] 开始解压..." >&2
-        local tar_err
-        tar_err=$(mktemp)
-        if ! tar -xz -C "$output_dir" -f "$tmpfile" 2>"$tar_err"; then
-            echo "    [错误] tar 解压失败" >&2
-            head -5 "$tar_err" | sed 's/^/    /' >&2
-            rm -f "$tmpfile" "$tar_err"
+        local file_size
+        file_size=$(stat -f%z "$tmpfile" 2>/dev/null || stat -c%s "$tmpfile" 2>/dev/null || echo 0)
+        
+        # 检查文件大小（太小可能是错误页面）
+        if [ "$file_size" -lt 500 ]; then
+            rm -f "$tmpfile"
             return 1
         fi
-        rm -f "$tar_err"
+        
+        # 解压
+        if ! tar -xz -C "$output_dir" -f "$tmpfile" 2>/dev/null; then
+            rm -f "$tmpfile"
+            return 1
+        fi
         
         rm -f "$tmpfile"
-        echo "    [成功] 下载并解压完成" >&2
         return 0
     }
     
