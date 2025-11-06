@@ -57,8 +57,8 @@ if [ "$FIRST_BUILD" = false ]; then
                 pkg_with_ver="${BASH_REMATCH[1]}"
                 pkgrel="${BASH_REMATCH[2]}"
                 
-                # 再匹配一次: 最后一个 - 后面是 pkgver（可能包含 epoch）
-                if [[ "$pkg_with_ver" =~ ^(.+)-([0-9].*)$ ]]; then
+                # 再匹配一次: 最后一个 - 后面是 pkgver（可能包含 epoch 或 v 前缀）
+                if [[ "$pkg_with_ver" =~ ^(.+)-(.+)$ ]]; then
                     pkg_name="${BASH_REMATCH[1]}"
                     pkgver="${BASH_REMATCH[2]}"
                     pkg_ver="${pkgver}-${pkgrel}"
