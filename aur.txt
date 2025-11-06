@@ -38,6 +38,7 @@ pikaur
 refind-r
 sk-boot-to-windows
 sk-chos-tool
+sk-chos-addon
 v4l-utils-git
 waydroid-script-git
 yay-git
