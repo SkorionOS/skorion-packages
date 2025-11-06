@@ -81,55 +81,82 @@ if [ "$FIRST_BUILD" = true ]; then
     echo "==> 首次构建，构建所有 AUR 包"
     grep -v '^#' aur.txt | grep -v '^$' > "$AUR_OUTPUT_FILE"
 else
-    echo "==> 增量检测 AUR 包"
-    while IFS= read -r pkg_name; do
-    [ -z "$pkg_name" ] && continue
+    echo "==> 增量检测 AUR 包（批量+并行）"
     
-    echo "==> 检查: $pkg_name"
+    # 1. 批量获取所有包信息（一次 API 请求）
+    echo "  → 批量获取 AUR 包信息"
+    pkg_list=$(grep -v '^#' aur.txt | grep -v '^$' | sed 's/^/arg[]=/g' | tr '\n' '&' | sed 's/&$//')
+    AUR_BULK_INFO=$(curl -s "https://aur.archlinux.org/rpc/v5/info?${pkg_list}")
     
-    # 获取 AUR 包信息
-    AUR_INFO=$(curl -s "https://aur.archlinux.org/rpc/v5/info?arg[]=${pkg_name}")
+    # 2. 创建临时目录
+    temp_dir=$(mktemp -d)
+    echo "$AUR_BULK_INFO" > "$temp_dir/bulk_info.json"
     
-    if echo "$AUR_INFO" | jq -e '.resultcount == 0' > /dev/null 2>&1; then
-        echo "  警告: 在 AUR 未找到 $pkg_name，跳过"
-        continue
-    fi
+    # 保存旧版本信息供子进程读取
+    for pkg in "${!OLD_VERSIONS[@]}"; do
+        echo "${pkg}=${OLD_VERSIONS[$pkg]}" >> "$temp_dir/old_versions.txt"
+    done
     
-    # 下载 PKGBUILD 检查是否有 pkgver() 函数
-    PKGBUILD_URL=$(echo "$AUR_INFO" | jq -r '.results[0].URLPath')
-    if [ -n "$PKGBUILD_URL" ] && [ "$PKGBUILD_URL" != "null" ]; then
-        PKGBUILD_CONTENT=$(curl -s "https://aur.archlinux.org${PKGBUILD_URL}" | tar -xzO --wildcards '*/PKGBUILD' 2>/dev/null || echo "")
+    # 3. 定义并行检查函数
+    check_aur_package_parallel() {
+        local pkg_name="$1"
+        local temp_dir="$2"
         
-        if echo "$PKGBUILD_CONTENT" | grep -qE '^\s*pkgver\s*\(\)'; then
-            echo "  → 动态版本包（有 pkgver() 函数），需要构建"
-            echo "$pkg_name" >> "$AUR_OUTPUT_FILE"
-            continue
+        # 从批量结果中提取该包的信息
+        pkg_info=$(jq -r ".results[] | select(.Name == \"$pkg_name\")" "$temp_dir/bulk_info.json")
+        
+        if [ -z "$pkg_info" ]; then
+            echo "  ✗ $pkg_name: 在 AUR 未找到"
+            return
         fi
-    fi
+        
+        # 获取 URLPath 并下载 PKGBUILD
+        url_path=$(echo "$pkg_info" | jq -r '.URLPath')
+        
+        if [ -n "$url_path" ] && [ "$url_path" != "null" ]; then
+            pkgbuild=$(curl -s "https://aur.archlinux.org${url_path}" 2>/dev/null | tar -xzO --wildcards '*/PKGBUILD' 2>/dev/null || echo "")
+            
+            if echo "$pkgbuild" | grep -qE '^\s*pkgver\s*\(\)'; then
+                echo "  ✓ $pkg_name: 动态版本包（有 pkgver() 函数），需要构建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                return
+            fi
+        fi
+        
+        # 版本对比
+        current_ver=$(echo "$pkg_info" | jq -r '.Version')
+        old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
+        
+        if [ -z "$old_ver" ]; then
+            echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
+            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+        elif [ "$current_ver" != "$old_ver" ]; then
+            echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
+            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+        else
+            echo "  → $pkg_name: 版本未变化 ($current_ver)"
+        fi
+    }
     
-    # 提取当前版本
-    current_ver=$(echo "$AUR_INFO" | jq -r '.results[0].Version')
-    echo "  当前: $current_ver"
+    export -f check_aur_package_parallel
     
-    # 对比版本
-    old_ver="${OLD_VERSIONS[$pkg_name]}"
-    if [ -z "$old_ver" ]; then
-        echo "  → 新包，需要构建"
-        echo "$pkg_name" >> "$AUR_OUTPUT_FILE"
-    elif [ "$current_ver" != "$old_ver" ]; then
-        echo "  → 版本变化: $old_ver → $current_ver，需要构建"
-        echo "$pkg_name" >> "$AUR_OUTPUT_FILE"
-    else
-        echo "  → 版本未变化，跳过"
-    fi
-    done < <(grep -v '^#' aur.txt | grep -v '^$')
+    # 4. 并行检查（10 个并发）
+    echo "  → 并行检查包更新（10 并发）"
+    grep -v '^#' aur.txt | grep -v '^$' | \
+        xargs -I {} -P 10 bash -c 'check_aur_package_parallel "$@"' _ {} "$temp_dir"
+    
+    # 5. 收集结果
+    cat "$temp_dir"/*.build 2>/dev/null > "$AUR_OUTPUT_FILE" || true
+    
+    # 清理临时目录
+    rm -rf "$temp_dir"
 fi
 
 # 检查 pinned 包（始终构建）
 if [ -f "aur-pinned.txt" ]; then
     echo ""
     echo "==> 检查固定版本包"
-    while IFS='=' read -r pkg_name commit_hash; do
+    while IFS='=' read -r pkg_name _; do
         # 跳过注释和空行
         [[ "$pkg_name" =~ ^#.*$ ]] && continue
         [ -z "$pkg_name" ] && continue
@@ -155,19 +182,32 @@ elif [ "$FIRST_BUILD" = true ]; then
     echo "==> 首次构建，构建所有本地包"
     find local -mindepth 1 -maxdepth 1 -type d -exec basename {} \; > "$LOCAL_OUTPUT_FILE"
 else
-    echo "==> 增量检测本地包"
-    for pkg_dir in local/*/; do
+    echo "==> 增量检测本地包（并行）"
+    
+    # 创建临时目录
+    temp_dir=$(mktemp -d)
+    
+    # 保存旧版本信息供子进程读取
+    for pkg in "${!OLD_VERSIONS[@]}"; do
+        echo "${pkg}=${OLD_VERSIONS[$pkg]}" >> "$temp_dir/old_versions.txt"
+    done
+    
+    # 定义并行检查函数
+    check_local_package_parallel() {
+        local pkg_dir="$1"
+        local temp_dir="$2"
+        local pkg_name
         pkg_name=$(basename "$pkg_dir")
         
         if [ ! -f "$pkg_dir/PKGBUILD" ]; then
-            continue
+            return
         fi
         
         # 检查是否有 pkgver() 函数
         if grep -qE '^\s*pkgver\s*\(\)' "$pkg_dir/PKGBUILD"; then
-            echo "  → $pkg_name 有 pkgver() 函数，需要构建"
-            echo "$pkg_name" >> "$LOCAL_OUTPUT_FILE"
-            continue
+            echo "  ✓ $pkg_name: 有 pkgver() 函数，需要构建"
+            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            return
         fi
         
         # 提取 PKGBUILD 中的版本
@@ -176,19 +216,31 @@ else
             current_ver="${pkgver}-${pkgrel}"
             
             # 对比版本
-            old_ver="${OLD_VERSIONS[$pkg_name]}"
+            old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
             
             if [ -z "$old_ver" ]; then
-                echo "  → $pkg_name 新包，需要构建"
-                echo "$pkg_name" >> "$LOCAL_OUTPUT_FILE"
+                echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
             elif [ "$current_ver" != "$old_ver" ]; then
-                echo "  → $pkg_name 版本变化: $old_ver → $current_ver，需要构建"
-                echo "$pkg_name" >> "$LOCAL_OUTPUT_FILE"
+                echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
             else
-                echo "  → $pkg_name 版本未变化，跳过"
+                echo "  → $pkg_name: 版本未变化 ($current_ver)"
             fi
         )
-    done
+    }
+    
+    export -f check_local_package_parallel
+    
+    # 并行检查（5 个并发，本地包数量较少）
+    find local -mindepth 1 -maxdepth 1 -type d -print0 | \
+        xargs -0 -I {} -P 5 bash -c 'check_local_package_parallel "$@"' _ {} "$temp_dir"
+    
+    # 收集结果
+    cat "$temp_dir"/*.build 2>/dev/null > "$LOCAL_OUTPUT_FILE" || true
+    
+    # 清理临时目录
+    rm -rf "$temp_dir"
 fi
 
 # 输出结果
