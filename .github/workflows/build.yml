@@ -25,6 +25,8 @@ jobs:
   list-packages:
     name: Detect Updates
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
     outputs:
       aur-packages: ${{ steps.set-aur.outputs.matrix }}
       local-packages: ${{ steps.set-local.outputs.matrix }}
@@ -35,8 +37,8 @@ jobs:
       
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq curl
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git jq curl tar findutils
       
       - name: Check package updates
         id: check-updates
