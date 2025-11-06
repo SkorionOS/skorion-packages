@@ -127,7 +127,8 @@ else
         fi
         
         # 使用 makepkg --nobuild 下载源码并执行 pkgver()
-        # 只抑制正常输出，保留错误信息
+        # 保留错误信息到 stderr，抑制正常输出
+        echo "    [makepkg] 执行 makepkg --nobuild..." >&2
         local makepkg_err
         makepkg_err=$(mktemp)
         if (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null); then
@@ -136,16 +137,16 @@ else
             local result
             result=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "${pkgver}-${pkgrel}"')
             if [ -n "$result" ]; then
+                echo "    [makepkg] 成功计算版本: $result" >&2
                 echo "$result"
                 return 0
             else
-                echo "    ⚠ 无法读取 pkgver/pkgrel" >&2
+                echo "    [错误] 无法读取 pkgver/pkgrel" >&2
             fi
         else
-            # 只显示关键错误（过滤掉常见的无关警告）
-            if [ -s "$makepkg_err" ]; then
-                grep -v "==> WARNING:" "$makepkg_err" | head -5 | sed 's/^/    /' >&2
-            fi
+            echo "    [错误] makepkg 执行失败" >&2
+            # 显示错误信息（只显示 ERROR 行）
+            grep "^==> ERROR:" "$makepkg_err" | head -3 | sed 's/^/    /' >&2
             rm -f "$makepkg_err"
         fi
         
@@ -158,23 +159,48 @@ else
     download_and_extract_pkgbuild() {
         local url_path="$1"
         local output_dir="$2"
+        local pkg_name="$3"
         
         local tmpfile
         tmpfile=$(mktemp)
         
-        # 下载
-        if ! curl -sL "https://aur.archlinux.org${url_path}" -o "$tmpfile" 2>/dev/null; then
+        # 下载（保留错误信息用于调试）
+        echo "    [下载] https://aur.archlinux.org${url_path}" >&2
+        local curl_err
+        curl_err=$(mktemp)
+        if ! curl -sL "https://aur.archlinux.org${url_path}" -o "$tmpfile" 2>"$curl_err"; then
+            echo "    [错误] curl 下载失败" >&2
+            cat "$curl_err" >&2
+            rm -f "$tmpfile" "$curl_err"
+            return 1
+        fi
+        rm -f "$curl_err"
+        
+        local file_size
+        file_size=$(stat -f%z "$tmpfile" 2>/dev/null || stat -c%s "$tmpfile" 2>/dev/null || echo 0)
+        echo "    [下载] 完成，大小: $file_size bytes" >&2
+        
+        # 检查文件大小（太小可能是错误页面）
+        if [ "$file_size" -lt 500 ]; then
+            echo "    [错误] 文件太小，可能是错误响应" >&2
             rm -f "$tmpfile"
             return 1
         fi
         
-        # 解压
-        if ! tar -xz -C "$output_dir" -f "$tmpfile" 2>/dev/null; then
-            rm -f "$tmpfile"
+        # 解压（保留错误信息）
+        echo "    [解压] 开始解压..." >&2
+        local tar_err
+        tar_err=$(mktemp)
+        if ! tar -xz -C "$output_dir" -f "$tmpfile" 2>"$tar_err"; then
+            echo "    [错误] tar 解压失败" >&2
+            head -5 "$tar_err" | sed 's/^/    /' >&2
+            rm -f "$tmpfile" "$tar_err"
             return 1
         fi
+        rm -f "$tar_err"
         
         rm -f "$tmpfile"
+        echo "    [成功] 下载并解压完成" >&2
         return 0
     }
     
@@ -216,7 +242,7 @@ else
         local tmpdir
         tmpdir=$(mktemp -d)
         
-        if ! download_and_extract_pkgbuild "$url_path" "$tmpdir"; then
+        if ! download_and_extract_pkgbuild "$url_path" "$tmpdir" "$pkg_name"; then
             rm -rf "$tmpdir"
             # 下载失败，进行普通版本对比
             current_ver=$(echo "$pkg_info" | jq -r '.Version')
