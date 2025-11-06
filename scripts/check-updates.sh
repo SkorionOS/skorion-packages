@@ -133,9 +133,9 @@ else
         makepkg_err=$(mktemp)
         if (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null); then
             rm -f "$makepkg_err"
-            # 重新读取更新后的版本
+            # 重新读取更新后的版本（包含 epoch）
             local result
-            result=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "${pkgver}-${pkgrel}"')
+            result=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && if [ -n "$epoch" ]; then echo "${epoch}:${pkgver}-${pkgrel}"; else echo "${pkgver}-${pkgrel}"; fi')
             if [ -n "$result" ]; then
                 echo "    [makepkg] 成功计算版本: $result" >&2
                 echo "$result"
