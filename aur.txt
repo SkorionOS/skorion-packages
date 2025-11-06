@@ -49,6 +49,7 @@ lib32-extest
 # 字体和输入法
 ibus-autostart
 noto-fonts-cjk-fontconfig
+fcitx5-theme-wechat
 
 # 应用程序
 cursor-bin
@@ -66,6 +67,8 @@ sx
 tsukimi-bin
 vboard
 xviewer
+wechat-bin
+wechat-universal-bwrap
 
 # KDE 主题
 plasma6-themes-vapor-steamos
