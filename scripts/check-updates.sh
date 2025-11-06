@@ -113,20 +113,40 @@ else
     # 3. 定义公共函数：计算 pkgver() 的真实版本
     compute_pkgver() {
         local pkgbuild_dir="$1"
+        local pkg_name
+        pkg_name=$(basename "$pkgbuild_dir")
         
         if [ ! -f "$pkgbuild_dir/PKGBUILD" ]; then
+            echo "    ⚠ PKGBUILD 不存在" >&2
             return 1
         fi
         
         if ! command -v makepkg &>/dev/null; then
+            echo "    ⚠ makepkg 命令不可用" >&2
             return 1
         fi
         
         # 使用 makepkg --nobuild 下载源码并执行 pkgver()
-        if (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>/dev/null); then
+        # 只抑制正常输出，保留错误信息
+        local makepkg_err
+        makepkg_err=$(mktemp)
+        if (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null); then
+            rm -f "$makepkg_err"
             # 重新读取更新后的版本
-            cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "${pkgver}-${pkgrel}"'
-            return 0
+            local result
+            result=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "${pkgver}-${pkgrel}"')
+            if [ -n "$result" ]; then
+                echo "$result"
+                return 0
+            else
+                echo "    ⚠ 无法读取 pkgver/pkgrel" >&2
+            fi
+        else
+            # 只显示关键错误（过滤掉常见的无关警告）
+            if [ -s "$makepkg_err" ]; then
+                grep -v "==> WARNING:" "$makepkg_err" | head -5 | sed 's/^/    /' >&2
+            fi
+            rm -f "$makepkg_err"
         fi
         
         return 1
