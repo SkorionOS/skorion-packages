@@ -377,16 +377,28 @@ else
             return
         fi
         
+        echo "  [DEBUG] $pkg_name: Checking at $pkg_dir" >&2
+        echo "  [DEBUG] $pkg_name: pkgrel in file = $(grep '^pkgrel=' "$pkg_dir/PKGBUILD" 2>/dev/null)" >&2
+        
         # 检查是否有 pkgver() 函数
         if grep -qE '^\s*pkgver\s*\(\)' "$pkg_dir/PKGBUILD"; then
             echo "  → $pkg_name: 检测到 pkgver() 函数，计算真实版本..."
             
+            # 先直接读取 PKGBUILD 中的静态值
+            local static_pkgrel static_pkgver
+            static_pkgrel=$(grep '^pkgrel=' "$pkg_dir/PKGBUILD" | cut -d= -f2)
+            static_pkgver=$(grep '^pkgver=' "$pkg_dir/PKGBUILD" | cut -d= -f2)
+            echo "  [DEBUG] $pkg_name: Static values - pkgver=$static_pkgver, pkgrel=$static_pkgrel" >&2
+            
             local real_ver
             real_ver=$(compute_pkgver "$pkg_dir")
+            echo "  [DEBUG] $pkg_name: compute_pkgver returned: '$real_ver'" >&2
             
             if [ -n "$real_ver" ]; then
                 # 成功获取真实版本，进行对比
                 old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
+                echo "  [DEBUG] $pkg_name: Old version from latest release: '$old_ver'" >&2
+                echo "  [DEBUG] $pkg_name: New computed version: '$real_ver'" >&2
                 
                 if [ -z "$old_ver" ]; then
                     echo "  ✓ $pkg_name: 新包 ($real_ver)，需要构建"
