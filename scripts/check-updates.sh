@@ -1,6 +1,16 @@
 #!/bin/bash
 # 检测 AUR 包和本地包更新
 # 对比当前版本与 latest Release 中的版本
+#
+# 环境变量:
+#   REPO_OWNER          - GitHub 仓库所有者
+#   REPO_NAME           - 仓库名称
+#   FORCE_REBUILD       - 强制重建的包列表(逗号分隔)
+#   LOG_LEVEL           - 日志级别: DEBUG, INFO(默认), WARN, ERROR
+#
+# 使用示例:
+#   LOG_LEVEL=DEBUG bash scripts/check-updates.sh
+#   FORCE_REBUILD=package1,package2 bash scripts/check-updates.sh
 
 set -e
 
@@ -8,8 +18,54 @@ REPO_OWNER="${REPO_OWNER:-SkorionOS}"
 REPO_NAME="${REPO_NAME:-skorion-packages}"
 AUR_OUTPUT_FILE="${AUR_OUTPUT_FILE:-updated-aur-packages.txt}"
 LOCAL_OUTPUT_FILE="${LOCAL_OUTPUT_FILE:-updated-local-packages.txt}"
+FORCE_REBUILD="${FORCE_REBUILD:-}"
+LOG_LEVEL="${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARN, ERROR
 
-echo "==> 检测包更新"
+# ==============================================================================
+# 日志函数
+# ==============================================================================
+log_debug() {
+    [[ "$LOG_LEVEL" == "DEBUG" ]] && echo "  [DEBUG] $*" >&2
+}
+
+log_info() {
+    [[ "$LOG_LEVEL" =~ ^(DEBUG|INFO)$ ]] && echo "  $*" >&2
+}
+
+log_warn() {
+    [[ "$LOG_LEVEL" =~ ^(DEBUG|INFO|WARN)$ ]] && echo "  ⚠ $*" >&2
+}
+
+log_error() {
+    echo "  ✗ $*" >&2
+}
+
+log_success() {
+    echo "  ✓ $*" >&2
+}
+
+log_header() {
+    echo "==> $*"
+}
+
+export -f log_debug log_info log_warn log_error log_success log_header
+
+log_header "检测包更新"
+
+# 处理强制重建的包列表
+FORCE_REBUILD_LIST=$(mktemp)
+if [ -n "$FORCE_REBUILD" ]; then
+    echo "==> 强制重建包列表: $FORCE_REBUILD"
+    IFS=',' read -ra FORCE_PACKAGES <<< "$FORCE_REBUILD"
+    for pkg in "${FORCE_PACKAGES[@]}"; do
+        pkg=$(echo "$pkg" | xargs)  # 去除空格
+        if [ -n "$pkg" ]; then
+            echo "$pkg" >> "$FORCE_REBUILD_LIST"
+            echo "  - $pkg (强制重建)"
+        fi
+    done
+fi
+export FORCE_REBUILD_LIST
 
 # 下载 latest Release 的 packages.json
 echo "==> 下载 latest Release 信息"
@@ -243,6 +299,13 @@ else
         local pkg_name="$1"
         local temp_dir="$2"
         
+        # 检查是否在强制重建列表中
+        if [ -f "$FORCE_REBUILD_LIST" ] && grep -qx "$pkg_name" "$FORCE_REBUILD_LIST"; then
+            echo "  ⚡ $pkg_name: 强制重建"
+            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            return
+        fi
+        
         # 从批量结果中提取该包的信息
         pkg_info=$(jq -r ".results[] | select(.Name == \"$pkg_name\")" "$temp_dir/bulk_info.json")
         
@@ -414,8 +477,15 @@ else
             return
         fi
         
-        echo "  [DEBUG] $pkg_name: Checking at $pkg_dir" >&2
-        echo "  [DEBUG] $pkg_name: pkgrel in file = $(grep '^pkgrel=' "$pkg_dir/PKGBUILD" 2>/dev/null)" >&2
+        # 检查是否在强制重建列表中
+        if [ -f "$FORCE_REBUILD_LIST" ] && grep -qx "$pkg_name" "$FORCE_REBUILD_LIST"; then
+            echo "  ⚡ $pkg_name: 强制重建" >&2
+            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            return
+        fi
+        
+        log_debug "$pkg_name: Checking at $pkg_dir"
+        log_debug "$pkg_name: pkgrel in file = $(grep '^pkgrel=' "$pkg_dir/PKGBUILD" 2>/dev/null)"
         
         # 检查是否有 pkgver() 函数
         if grep -qE '^\s*pkgver\s*\(\)' "$pkg_dir/PKGBUILD"; then
@@ -425,17 +495,17 @@ else
             local static_pkgrel static_pkgver
             static_pkgrel=$(grep '^pkgrel=' "$pkg_dir/PKGBUILD" | cut -d= -f2)
             static_pkgver=$(grep '^pkgver=' "$pkg_dir/PKGBUILD" | cut -d= -f2)
-            echo "  [DEBUG] $pkg_name: Static values - pkgver=$static_pkgver, pkgrel=$static_pkgrel" >&2
+            log_debug "$pkg_name: Static values - pkgver=$static_pkgver, pkgrel=$static_pkgrel"
             
             local real_ver
             real_ver=$(compute_pkgver "$pkg_dir")
-            echo "  [DEBUG] $pkg_name: compute_pkgver returned: '$real_ver'" >&2
+            log_debug "$pkg_name: compute_pkgver returned: '$real_ver'"
             
             if [ -n "$real_ver" ]; then
                 # 成功获取真实版本，进行对比
                 old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
-                echo "  [DEBUG] $pkg_name: Old version from latest release: '$old_ver'" >&2
-                echo "  [DEBUG] $pkg_name: New computed version: '$real_ver'" >&2
+                log_debug "$pkg_name: Old version from latest release: '$old_ver'"
+                log_debug "$pkg_name: New computed version: '$real_ver'"
                 
                 if [ -z "$old_ver" ]; then
                     echo "  ✓ $pkg_name: 新包 ($real_ver)，需要构建"
@@ -497,4 +567,7 @@ echo "==> 检测完成"
 echo "==> AUR 包: $AUR_COUNT 个需要构建"
 echo "==> 本地包: $LOCAL_COUNT 个需要构建"
 echo "========================================"
+
+# 清理临时文件
+rm -f "$FORCE_REBUILD_LIST"
 

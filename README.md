@@ -73,11 +73,6 @@ Server = https://github.com/SkorionOS/skorion-packages/releases/download/2024.11
 **完整仓库保证**：
 - 从 `latest` Release 下载未更新的包
 - 新旧包合并生成完整仓库数据库
-- 用户始终看到完整的 79 个包
-
-**构建时间对比**：
-- 全量构建：10-20 分钟（79 个包）
-- 增量构建：2-5 分钟（通常只有 5-10 个包更新）
 
 ### GitHub Actions Matrix 并行构建
 
@@ -111,72 +106,8 @@ Server = https://github.com/SkorionOS/skorion-packages/releases/download/2024.11
    - 包含所有包（新 + 旧）
 
 5. **发布**：
-   - 更新 `latest` Release（完整的 79 个包）
+   - 更新 `latest` Release
    - 每周日创建带日期的归档 Release
-
-## 包列表
-
-### AUR 包（基础系统）
-- aic8800d80-dkms
-- bcm20702a1-firmware
-- chimeraos-device-quirks-sk
-- downgrade
-- evdev-keepalive
-- frzr-sk
-- gamescope-session-sk-git
-- gamescope-session-steam-sk-git
-- gamescope-session-steam-plus-git
-- gamescope-sk
-- gpdconfig-git
-- hhd
-- hhd-ui
-- hhfc-git
-- inputplumber-bin
-- kanit-font
-- lib32-extest
-- linux-firmware-valve
-- nbfc-linux
-- networkd-dispatcher
-- nintendo-udev
-- noto-fonts-cjk-fontconfig
-- onedrive-abraunegg
-- pikaur
-- python-pyclip
-- refind-r
-- rtl8812au-dkms-git
-- rtl8814au-dkms-git
-- rtl8821au-dkms-git
-- ryzenadj-git
-- ryzen_smu-dkms-git
-- sk-boot-to-windows
-- sk-chos-tool
-- steam_notif_daemon
-- sx
-- v4l-utils-git
-- vboard
-- waydroid-script-git
-- yay-git
-- zenergy-dkms-git
-- flatseal
-- moonlight-qt-axi
-- protonplus
-- protontricks
-- tsukimi-bin
-
-### 本地包（基础系统）
-- ayaneo-platform-dkms-git
-- clipboard-sync
-- davfs2
-- mangohud-git
-- powerstation-git
-- rtl88x2bu-dkms
-- skorionos-fastfetch-logo
-- steam-launch-manager
-- steam-removable-media-git
-- steamos-manager
-- steamos-powerbuttond
-- xonedo-dkms
-- xonedo-firmware
 
 ## 维护指南
 
