@@ -14,7 +14,8 @@ depends=(gcc-libs
   systemd)
 makedepends=(cargo
   git
-  make)
+  make
+  go-md2man)
 provides=("bootc=$pkgver")
 conflicts=('bootc')
 source=("git+$_url.git")

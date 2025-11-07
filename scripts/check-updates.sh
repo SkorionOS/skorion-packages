@@ -151,6 +151,12 @@ else
             
             echo "    [makepkg] After makepkg: pkgver=$new_pkgver, pkgrel=$new_pkgrel" >&2
             
+            # Check if pkgver is valid (not a variable or placeholder)
+            if [[ "$new_pkgver" =~ [\$\"\'] ]] || [ -z "$new_pkgver" ]; then
+                echo "    [错误] pkgver() 执行失败，得到无效值: $new_pkgver" >&2
+                return 1
+            fi
+            
             # Smart pkgrel handling:
             # If pkgver changed -> use new pkgrel (usually reset to 1)
             # If pkgver unchanged -> keep original pkgrel (PKGBUILD modifications need higher pkgrel)
