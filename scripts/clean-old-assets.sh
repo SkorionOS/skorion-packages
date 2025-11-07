@@ -70,8 +70,9 @@ extract_package_name() {
     fi
 }
 
-# 获取本地新构建的包名列表
+# 获取本地新构建的包名列表和完整文件名
 declare -A NEW_PACKAGES
+declare -A NEW_PACKAGE_FILES
 
 echo "  检测本地新构建的包..."
 for file in "$OUTPUT_DIR"/*.pkg.tar.zst; do
@@ -82,6 +83,7 @@ for file in "$OUTPUT_DIR"/*.pkg.tar.zst; do
     
     if [ -n "$pkg_name" ]; then
         NEW_PACKAGES[$pkg_name]=1
+        NEW_PACKAGE_FILES[$filename]=1
         echo "    新包: $pkg_name"
     fi
 done
@@ -96,13 +98,18 @@ echo "  检查 release 中的现有文件..."
 
 deleted_count=0
 kept_count=0
+skipped_count=0
 
 # 避免使用管道（会创建子shell），使用进程替换
 while IFS='|' read -r asset_id asset_name; do
     pkg_name=$(extract_package_name "$asset_name")
     
-    # 如果这个包有新版本，删除旧的 asset
-    if [ "${NEW_PACKAGES[$pkg_name]}" = "1" ]; then
+    # 如果本地有相同的文件名，跳过（版本相同）
+    if [ "${NEW_PACKAGE_FILES[$asset_name]}" = "1" ]; then
+        echo "    = 跳过相同版本: $asset_name"
+        skipped_count=$((skipped_count + 1))
+    # 如果这个包有新版本（但文件名不同），删除旧的 asset
+    elif [ "${NEW_PACKAGES[$pkg_name]}" = "1" ]; then
         echo "    ✗ 删除旧版本: $asset_name"
         
         http_code=$(curl -X DELETE \
@@ -127,5 +134,6 @@ done < <(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg
 echo ""
 echo "==> 清理完成"
 echo "    删除: $deleted_count 个旧版本"
-echo "    保留: $kept_count 个包"
+echo "    跳过: $skipped_count 个相同版本"
+echo "    保留: $kept_count 个无更新的包"
 
