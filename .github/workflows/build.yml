@@ -76,8 +76,13 @@ jobs:
           FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || '' }}
           LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
         run: |
-          # 以 builder 用户运行检查脚本
-          sudo -u builder bash scripts/check-updates.sh
+          # 以 builder 用户运行检查脚本，保留环境变量
+          sudo -u builder \
+            REPO_OWNER="$REPO_OWNER" \
+            REPO_NAME="$REPO_NAME" \
+            FORCE_REBUILD="$FORCE_REBUILD" \
+            LOG_LEVEL="$LOG_LEVEL" \
+            bash scripts/check-updates.sh
       
       - name: List AUR packages to build
         id: set-aur
