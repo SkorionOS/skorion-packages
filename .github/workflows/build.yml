@@ -172,7 +172,8 @@ jobs:
       always() && 
       (needs.build-packages.result == 'success' || needs.build-packages.result == 'skipped') &&
       needs.build-packages.result != 'failure' &&
-      needs.build-packages.result != 'cancelled'
+      needs.build-packages.result != 'cancelled' &&
+      (github.event.inputs.create_snapshot == 'true' || needs.list-packages.outputs.all-packages != '[]')
     container:
       image: archlinux:latest
     outputs:
@@ -297,14 +298,21 @@ jobs:
           pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
           
           if [ "$pkg_count" -eq 0 ]; then
-            # 检查是否是真正的首次构建（既无现有数据，也无新构建）
+            # 情况 1: 首次构建且无包更新（既无现有数据，也无新构建）
             if [ "$HAS_EXISTING_DATA" != "true" ] && [ "$HAS_NEW_BUILDS" != "true" ]; then
               echo "==> 首次构建且无包更新，跳过后续步骤"
               echo "should-continue=false" >> $GITHUB_OUTPUT
               exit 0
             fi
             
-            # 如果有现有数据或有新构建，但没有包文件，则报错
+            # 情况 2: 增量模式下无新构建（正常情况：没有包更新）
+            if [ "$IS_SNAPSHOT" != "true" ] && [ "$HAS_NEW_BUILDS" != "true" ]; then
+              echo "==> 增量模式：无包更新，跳过后续步骤"
+              echo "should-continue=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            # 情况 3: 有新构建或快照模式，但没有包文件（异常情况）
             echo "❌ 错误: 没有找到任何包文件！"
             echo ""
             echo "诊断信息："
@@ -316,7 +324,7 @@ jobs:
             if [ "$HAS_NEW_BUILDS" = "true" ]; then
               echo "  1. ❌ artifacts 下载失败"
             fi
-            if [ "$HAS_EXISTING_DATA" = "true" ]; then
+            if [ "$IS_SNAPSHOT" = "true" ]; then
               echo "  2. ❌ release 下载失败"
             fi
             echo "  3. ❌ 构建过程出现问题"
