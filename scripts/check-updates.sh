@@ -55,15 +55,18 @@ log_header "检测包更新"
 # 处理强制重建的包列表
 FORCE_REBUILD_LIST=$(mktemp)
 if [ -n "$FORCE_REBUILD" ]; then
-    echo "==> 强制重建包列表: $FORCE_REBUILD"
+    log_info "==> 强制重建包列表: $FORCE_REBUILD"
     IFS=',' read -ra FORCE_PACKAGES <<< "$FORCE_REBUILD"
     for pkg in "${FORCE_PACKAGES[@]}"; do
         pkg=$(echo "$pkg" | xargs)  # 去除空格
         if [ -n "$pkg" ]; then
             echo "$pkg" >> "$FORCE_REBUILD_LIST"
-            echo "  - $pkg (强制重建)"
+            log_info "  - $pkg (强制重建)"
         fi
     done
+    log_debug "Force rebuild list file: $FORCE_REBUILD_LIST"
+    log_debug "Force rebuild list contents:"
+    log_debug "$(cat "$FORCE_REBUILD_LIST")"
 fi
 export FORCE_REBUILD_LIST
 
@@ -306,10 +309,15 @@ else
         local temp_dir="$2"
         
         # 检查是否在强制重建列表中
-        if [ -f "$FORCE_REBUILD_LIST" ] && grep -qx "$pkg_name" "$FORCE_REBUILD_LIST"; then
-            echo "  ⚡ $pkg_name: 强制重建"
-            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-            return
+        log_debug "  [force-check] Checking if $pkg_name is in force rebuild list: $FORCE_REBUILD_LIST"
+        if [ -f "$FORCE_REBUILD_LIST" ] && [ -s "$FORCE_REBUILD_LIST" ]; then
+            log_debug "  [force-check] Force rebuild list exists, contents:"
+            log_debug "$(cat "$FORCE_REBUILD_LIST" 2>/dev/null || echo '  [empty or unreadable]')"
+            if grep -Fxq "$pkg_name" "$FORCE_REBUILD_LIST" 2>/dev/null; then
+                log_info "  ⚡ $pkg_name: 强制重建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                return
+            fi
         fi
         
         # 从批量结果中提取该包的信息
@@ -484,10 +492,15 @@ else
         fi
         
         # 检查是否在强制重建列表中
-        if [ -f "$FORCE_REBUILD_LIST" ] && grep -qx "$pkg_name" "$FORCE_REBUILD_LIST"; then
-            echo "  ⚡ $pkg_name: 强制重建" >&2
-            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-            return
+        log_debug "  [force-check] Checking if $pkg_name is in force rebuild list: $FORCE_REBUILD_LIST"
+        if [ -f "$FORCE_REBUILD_LIST" ] && [ -s "$FORCE_REBUILD_LIST" ]; then
+            log_debug "  [force-check] Force rebuild list exists, contents:"
+            log_debug "$(cat "$FORCE_REBUILD_LIST" 2>/dev/null || echo '  [empty or unreadable]')"
+            if grep -Fxq "$pkg_name" "$FORCE_REBUILD_LIST" 2>/dev/null; then
+                log_info "  ⚡ $pkg_name: 强制重建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                return
+            fi
         fi
         
         log_debug "$pkg_name: Checking at $pkg_dir"

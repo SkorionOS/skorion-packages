@@ -19,6 +19,16 @@ on:
         required: false
         type: string
         default: ''
+      log_level:
+        description: '日志级别 (DEBUG, INFO, WARN, ERROR)'
+        required: false
+        type: choice
+        options:
+          - INFO
+          - DEBUG
+          - WARN
+          - ERROR
+        default: 'INFO'
 
 env:
   REPO_NAME: skorion
@@ -64,6 +74,7 @@ jobs:
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
           FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || '' }}
+          LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
         run: |
           # 以 builder 用户运行检查脚本
           sudo -u builder bash scripts/check-updates.sh
