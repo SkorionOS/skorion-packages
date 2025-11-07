@@ -145,9 +145,10 @@ else
             rm -f "$makepkg_err"
             
             # Read new pkgver after makepkg executed pkgver()
+            # Use source to get expanded variable values (handles pkgver="$_tag" etc)
             local new_pkgver new_pkgrel
-            new_pkgver=$(grep '^pkgver=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2)
-            new_pkgrel=$(grep '^pkgrel=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2)
+            new_pkgver=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "$pkgver"')
+            new_pkgrel=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "$pkgrel"')
             
             echo "    [makepkg] After makepkg: pkgver=$new_pkgver, pkgrel=$new_pkgrel" >&2
             
