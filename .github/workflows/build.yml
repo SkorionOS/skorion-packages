@@ -168,7 +168,11 @@ jobs:
     needs: [list-packages, build-packages]
     name: Generate Repository
     runs-on: ubuntu-latest
-    if: always() && needs.build-packages.result != 'failure'
+    if: |
+      always() && 
+      (needs.build-packages.result == 'success' || needs.build-packages.result == 'skipped') &&
+      needs.build-packages.result != 'failure' &&
+      needs.build-packages.result != 'cancelled'
     container:
       image: archlinux:latest
     outputs:
@@ -361,7 +365,9 @@ jobs:
     name: Publish Release
     runs-on: ubuntu-latest
     if: |
+      always() &&
       github.event_name != 'pull_request' && 
+      needs.generate-repo.result == 'success' &&
       needs.generate-repo.outputs.should-publish == 'true'
     permissions:
       contents: write
