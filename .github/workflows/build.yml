@@ -173,6 +173,7 @@ jobs:
       image: archlinux:latest
     outputs:
       should-publish: ${{ steps.verify-packages.outputs.should-continue }}
+      is-snapshot: ${{ steps.check-mode.outputs.is-snapshot }}
     
     steps:
       - uses: actions/checkout@v4
@@ -202,6 +203,18 @@ jobs:
         run: |
           echo "==> 新构建的包:"
           ls -lh output/ || echo "  无新包"
+      
+      - name: Check build mode
+        id: check-mode
+        env:
+          CREATE_SNAPSHOT: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot) }}
+        run: |
+          echo "is-snapshot=$CREATE_SNAPSHOT" >> $GITHUB_OUTPUT
+          if [ "$CREATE_SNAPSHOT" = "true" ]; then
+            echo "==> 🗓️  快照模式：将创建完整的包集合快照"
+          else
+            echo "==> 🔄 增量模式：仅更新变更的包"
+          fi
       
       - name: Download existing data from latest release
         id: download-existing
@@ -275,6 +288,7 @@ jobs:
         env:
           HAS_EXISTING_DATA: ${{ steps.download-existing.outputs.has-existing-data }}
           HAS_NEW_BUILDS: ${{ needs.list-packages.outputs.all-packages != '[]' }}
+          IS_SNAPSHOT: ${{ steps.check-mode.outputs.is-snapshot }}
         run: |
           pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
           
@@ -292,6 +306,7 @@ jobs:
             echo "诊断信息："
             echo "  - 有现有数据: $HAS_EXISTING_DATA"
             echo "  - 有新构建: $HAS_NEW_BUILDS"
+            echo "  - 快照模式: $IS_SNAPSHOT"
             echo ""
             echo "可能的原因："
             if [ "$HAS_NEW_BUILDS" = "true" ]; then
@@ -305,7 +320,19 @@ jobs:
           fi
           
           echo "✓ 找到 $pkg_count 个包文件"
-          echo "should-continue=true" >> $GITHUB_OUTPUT
+          
+          # 快照模式：无论是否有新构建，都要发布
+          # 增量模式：只有当有新构建时才发布
+          if [ "$IS_SNAPSHOT" = "true" ]; then
+            echo "==> 快照模式：将创建 release"
+            echo "should-continue=true" >> $GITHUB_OUTPUT
+          elif [ "$HAS_NEW_BUILDS" = "true" ]; then
+            echo "==> 增量模式：有新构建，将更新 release"
+            echo "should-continue=true" >> $GITHUB_OUTPUT
+          else
+            echo "==> 增量模式：无新构建，跳过 release 更新"
+            echo "should-continue=false" >> $GITHUB_OUTPUT
+          fi
       
       - name: Generate repository database
         if: steps.verify-packages.outputs.should-continue == 'true'
@@ -333,7 +360,9 @@ jobs:
     needs: generate-repo
     name: Publish Release
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' && needs.generate-repo.outputs.should-publish == 'true'
+    if: |
+      github.event_name != 'pull_request' && 
+      needs.generate-repo.outputs.should-publish == 'true'
     permissions:
       contents: write
     
