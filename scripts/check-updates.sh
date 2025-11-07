@@ -131,27 +131,53 @@ else
             return 1
         fi
         
-        # 使用 makepkg --nobuild 下载源码并执行 pkgver()
-        # 保留错误信息到 stderr，抑制正常输出
-        echo "    [DEBUG] pkgrel BEFORE makepkg: $(grep '^pkgrel=' "$pkgbuild_dir/PKGBUILD")" >&2
+        # Save original pkgver and pkgrel before makepkg
+        local original_pkgver original_pkgrel original_epoch
+        original_pkgver=$(grep '^pkgver=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2)
+        original_pkgrel=$(grep '^pkgrel=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2)
+        original_epoch=$(grep '^epoch=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2 2>/dev/null || echo "")
+        
+        echo "    [makepkg] Original: pkgver=$original_pkgver, pkgrel=$original_pkgrel" >&2
         echo "    [makepkg] 执行 makepkg --nobuild..." >&2
         local makepkg_err
         makepkg_err=$(mktemp)
         if (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null); then
             rm -f "$makepkg_err"
-            echo "    [DEBUG] pkgrel AFTER makepkg: $(grep '^pkgrel=' "$pkgbuild_dir/PKGBUILD")" >&2
-            echo "    [DEBUG] Full PKGBUILD first 10 lines after makepkg:" >&2
-            head -10 "$pkgbuild_dir/PKGBUILD" | sed 's/^/    /' >&2
-            # 重新读取更新后的版本（包含 epoch）
-            local result
-            result=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "[DEBUG in subshell] pkgver=$pkgver, pkgrel=$pkgrel" >&2 && if [ -n "$epoch" ]; then echo "${epoch}:${pkgver}-${pkgrel}"; else echo "${pkgver}-${pkgrel}"; fi')
-            if [ -n "$result" ]; then
-                echo "    [makepkg] 成功计算版本: $result" >&2
-                echo "$result"
-                return 0
+            
+            # Read new pkgver after makepkg executed pkgver()
+            local new_pkgver new_pkgrel
+            new_pkgver=$(grep '^pkgver=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2)
+            new_pkgrel=$(grep '^pkgrel=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2)
+            
+            echo "    [makepkg] After makepkg: pkgver=$new_pkgver, pkgrel=$new_pkgrel" >&2
+            
+            # Smart pkgrel handling:
+            # If pkgver changed -> use new pkgrel (usually reset to 1)
+            # If pkgver unchanged -> keep original pkgrel (PKGBUILD modifications need higher pkgrel)
+            local final_pkgver final_pkgrel
+            final_pkgver="$new_pkgver"
+            
+            if [ "$original_pkgver" = "$new_pkgver" ]; then
+                # pkgver unchanged, preserve original pkgrel
+                final_pkgrel="$original_pkgrel"
+                echo "    [makepkg] pkgver unchanged, preserving original pkgrel=$original_pkgrel" >&2
             else
-                echo "    [错误] 无法读取 pkgver/pkgrel" >&2
+                # pkgver changed, use new pkgrel (reset to 1)
+                final_pkgrel="$new_pkgrel"
+                echo "    [makepkg] pkgver changed ($original_pkgver -> $new_pkgver), using new pkgrel=$new_pkgrel" >&2
             fi
+            
+            # Build final version string
+            local result
+            if [ -n "$original_epoch" ]; then
+                result="${original_epoch}:${final_pkgver}-${final_pkgrel}"
+            else
+                result="${final_pkgver}-${final_pkgrel}"
+            fi
+            
+            echo "    [makepkg] 成功计算版本: $result" >&2
+            echo "$result"
+            return 0
         else
             echo "    [错误] makepkg 执行失败" >&2
             # 显示错误信息（只显示 ERROR 行）
