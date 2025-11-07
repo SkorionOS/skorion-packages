@@ -26,26 +26,32 @@ LOG_LEVEL="${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARN, ERROR
 # ==============================================================================
 log_debug() {
     [[ "$LOG_LEVEL" == "DEBUG" ]] && echo "  [DEBUG] $*" >&2
+    return 0
 }
 
 log_info() {
     [[ "$LOG_LEVEL" =~ ^(DEBUG|INFO)$ ]] && echo "  $*" >&2
+    return 0
 }
 
 log_warn() {
     [[ "$LOG_LEVEL" =~ ^(DEBUG|INFO|WARN)$ ]] && echo "  ⚠ $*" >&2
+    return 0
 }
 
 log_error() {
     echo "  ✗ $*" >&2
+    return 0
 }
 
 log_success() {
     echo "  ✓ $*" >&2
+    return 0
 }
 
 log_header() {
     echo "==> $*"
+    return 0
 }
 
 export -f log_debug log_info log_warn log_error log_success log_header
