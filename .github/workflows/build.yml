@@ -171,6 +171,8 @@ jobs:
     if: always() && needs.build-packages.result != 'failure'
     container:
       image: archlinux:latest
+    outputs:
+      should-publish: ${{ steps.verify-packages.outputs.should-continue }}
     
     steps:
       - uses: actions/checkout@v4
@@ -202,6 +204,7 @@ jobs:
           ls -lh output/ || echo "  无新包"
       
       - name: Download existing data from latest release
+        id: download-existing
         env:
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}
@@ -218,8 +221,19 @@ jobs:
           # 检查是否存在
           if echo "$LATEST_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
             echo "==> 首次构建，无现有数据"
+            echo "has-existing-data=false" >> $GITHUB_OUTPUT
             exit 0
           fi
+          
+          # 检查 assets 是否存在且不为空
+          assets_count=$(echo "$LATEST_JSON" | jq '.assets | length // 0')
+          if [ "$assets_count" -eq 0 ]; then
+            echo "==> latest release 存在但没有 assets，可能是首次构建"
+            echo "has-existing-data=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "has-existing-data=true" >> $GITHUB_OUTPUT
           
           if [ "$CREATE_SNAPSHOT" = "true" ]; then
             # 创建快照：下载所有包（需要完整副本）
@@ -257,25 +271,51 @@ jobs:
           ls -lh output/
       
       - name: Verify package files exist
+        id: verify-packages
+        env:
+          HAS_EXISTING_DATA: ${{ steps.download-existing.outputs.has-existing-data }}
+          HAS_NEW_BUILDS: ${{ needs.list-packages.outputs.all-packages != '[]' }}
         run: |
           pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          
           if [ "$pkg_count" -eq 0 ]; then
-            echo "错误: 没有找到任何包文件！"
-            echo "这可能意味着："
-            echo "  1. artifacts 下载失败"
-            echo "  2. release 下载失败"
-            echo "  3. 构建过程出现问题"
+            # 检查是否是真正的首次构建（既无现有数据，也无新构建）
+            if [ "$HAS_EXISTING_DATA" != "true" ] && [ "$HAS_NEW_BUILDS" != "true" ]; then
+              echo "==> 首次构建且无包更新，跳过后续步骤"
+              echo "should-continue=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            # 如果有现有数据或有新构建，但没有包文件，则报错
+            echo "❌ 错误: 没有找到任何包文件！"
+            echo ""
+            echo "诊断信息："
+            echo "  - 有现有数据: $HAS_EXISTING_DATA"
+            echo "  - 有新构建: $HAS_NEW_BUILDS"
+            echo ""
+            echo "可能的原因："
+            if [ "$HAS_NEW_BUILDS" = "true" ]; then
+              echo "  1. ❌ artifacts 下载失败"
+            fi
+            if [ "$HAS_EXISTING_DATA" = "true" ]; then
+              echo "  2. ❌ release 下载失败"
+            fi
+            echo "  3. ❌ 构建过程出现问题"
             exit 1
           fi
+          
           echo "✓ 找到 $pkg_count 个包文件"
+          echo "should-continue=true" >> $GITHUB_OUTPUT
       
       - name: Generate repository database
+        if: steps.verify-packages.outputs.should-continue == 'true'
         env:
           OUTPUT_DIR: ./output
         run: |
           bash scripts/generate-repo.sh
       
       - name: Upload repository artifacts
+        if: steps.verify-packages.outputs.should-continue == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: repository
@@ -293,7 +333,7 @@ jobs:
     needs: generate-repo
     name: Publish Release
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.generate-repo.outputs.should-publish == 'true'
     permissions:
       contents: write
     
