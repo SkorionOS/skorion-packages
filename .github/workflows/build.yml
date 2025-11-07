@@ -209,6 +209,9 @@ jobs:
         run: |
           echo "==> 下载 latest Release 中的现有数据"
           
+          # 确保 output 目录存在
+          mkdir -p output
+          
           # 获取 latest release 信息
           LATEST_JSON=$(curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" || echo "{}")
           
@@ -239,7 +242,7 @@ jobs:
             echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | test("\\.(db|files)")) | .browser_download_url' | while read url; do
               filename=$(basename "$url")
               echo "  下载 $filename"
-              curl -sL "$url" -o "output/$filename" || true
+              curl -sL "$url" -o "output/$filename"
             done
             
             # 下载 packages.json（用于版本检测）
@@ -252,6 +255,19 @@ jobs:
           
           echo "==> 当前文件列表:"
           ls -lh output/
+      
+      - name: Verify package files exist
+        run: |
+          pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          if [ "$pkg_count" -eq 0 ]; then
+            echo "错误: 没有找到任何包文件！"
+            echo "这可能意味着："
+            echo "  1. artifacts 下载失败"
+            echo "  2. release 下载失败"
+            echo "  3. 构建过程出现问题"
+            exit 1
+          fi
+          echo "✓ 找到 $pkg_count 个包文件"
       
       - name: Generate repository database
         env:
