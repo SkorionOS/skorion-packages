@@ -24,6 +24,9 @@ ryzenadj-git
 ryzen_smu-dkms-git
 zenergy-dkms-git
 
+# bootc
+bootc-git-composefs
+
 # 游戏和会话
 gamescope-sk
 gamescope-session-sk-git
