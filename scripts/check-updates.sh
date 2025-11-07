@@ -80,7 +80,13 @@ fi
 
 # 下载 packages.json
 if [ "$FIRST_BUILD" = false ]; then
-    PACKAGES_JSON_URL=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name == "packages.json") | .browser_download_url')
+    # 安全地检查 assets 是否存在
+    if echo "$LATEST_JSON" | jq -e '.assets' > /dev/null 2>&1; then
+        PACKAGES_JSON_URL=$(echo "$LATEST_JSON" | jq -r '.assets[]? | select(.name == "packages.json") | .browser_download_url' 2>/dev/null | head -1)
+    else
+        PACKAGES_JSON_URL=""
+    fi
+    
     if [ -z "$PACKAGES_JSON_URL" ] || [ "$PACKAGES_JSON_URL" = "null" ]; then
         echo "==> 警告: 未找到 packages.json"
         FIRST_BUILD=true
