@@ -133,14 +133,18 @@ else
         
         # 使用 makepkg --nobuild 下载源码并执行 pkgver()
         # 保留错误信息到 stderr，抑制正常输出
+        echo "    [DEBUG] pkgrel BEFORE makepkg: $(grep '^pkgrel=' "$pkgbuild_dir/PKGBUILD")" >&2
         echo "    [makepkg] 执行 makepkg --nobuild..." >&2
         local makepkg_err
         makepkg_err=$(mktemp)
         if (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null); then
             rm -f "$makepkg_err"
+            echo "    [DEBUG] pkgrel AFTER makepkg: $(grep '^pkgrel=' "$pkgbuild_dir/PKGBUILD")" >&2
+            echo "    [DEBUG] Full PKGBUILD first 10 lines after makepkg:" >&2
+            head -10 "$pkgbuild_dir/PKGBUILD" | sed 's/^/    /' >&2
             # 重新读取更新后的版本（包含 epoch）
             local result
-            result=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && if [ -n "$epoch" ]; then echo "${epoch}:${pkgver}-${pkgrel}"; else echo "${pkgver}-${pkgrel}"; fi')
+            result=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "[DEBUG in subshell] pkgver=$pkgver, pkgrel=$pkgrel" >&2 && if [ -n "$epoch" ]; then echo "${epoch}:${pkgver}-${pkgrel}"; else echo "${pkgver}-${pkgrel}"; fi')
             if [ -n "$result" ]; then
                 echo "    [makepkg] 成功计算版本: $result" >&2
                 echo "$result"
