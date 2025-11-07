@@ -1,0 +1,56 @@
+
+pkgname=bootc-git
+_pkgname=bootc
+pkgver=1.5.1.r14.g03fa72b
+pkgrel=2
+pkgdesc="Boot and upgrade via container images"
+arch=('x86_64' 'i686' 'armv6h' 'armv7h')
+url="https://bootc-dev.github.io/bootc"
+_url="https://www.github.com/$_pkgname-dev/$_pkgname"
+license=('MIT OR Apache-2.0')
+depends=(gcc-libs
+  glibc
+  ostree
+  systemd)
+makedepends=(cargo
+  git
+  make)
+provides=("bootc=$pkgver")
+conflicts=('bootc')
+source=("git+$_url.git")
+sha256sums=('SKIP')
+# options=(!lto)
+
+prepare() {
+  cd "$_pkgname"
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+pkgver() {
+  cd "$_pkgname"
+  git describe --long --tags --abbrev=7 --match="v*" HEAD |
+    sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+build() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  
+  # Build binaries and man pages
+  make bin manpages
+}
+
+package() {
+  cd "$_pkgname"
+  
+  # Use Makefile for complete installation
+  # Includes: binaries, systemd units, man pages, config files, etc.
+  make install DESTDIR="${pkgdir}" prefix=/usr
+  
+  # Install initramfs support and dracut module (critical for bootc to work!)
+  make install-initramfs-dracut DESTDIR="${pkgdir}"
+  
+  # Install ostree integration hooks (optional but recommended)
+  make install-ostree-hooks DESTDIR="${pkgdir}" prefix=/usr
+}
