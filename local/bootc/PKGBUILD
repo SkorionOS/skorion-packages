@@ -1,0 +1,38 @@
+pkgname=bootc
+pkgver=1.10.0
+pkgrel=1
+pkgdesc="Boot and upgrade via container images"
+arch=('x86_64' 'i686' 'armv6h' 'armv7h')
+url="https://bootc-dev.github.io/bootc"
+license=('MIT OR Apache-2.0')
+depends=(gcc-libs
+  glibc
+  ostree)
+makedepends=(cargo
+  git)
+provides=("bootc=$pkgver")
+conflicts=('bootc')
+source=("https://github.com/bootc-dev/bootc/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('024f62961e6e3312a1c17d2c5b74d9a6cd5fe64ec204a14fd0a77a66a0b799a6')
+# options=(!lto)
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --release --frozen
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/bootc -t "${pkgdir}/usr/bin"
+  install -Dm755 -d "${pkgdir}/usr/share/doc/$pkgname"
+  cp -Rv docs/src/* "${pkgdir}/usr/share/doc/$pkgname/"
+  install -Dm644 LICENSE-APACHE -t "${pkgdir}/usr/share/licenses/$pkgname/"
+  install -Dm644 LICENSE-MIT -t "${pkgdir}/usr/share/licenses/$pkgname/"
+}
