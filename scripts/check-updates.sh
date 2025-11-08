@@ -203,12 +203,11 @@ else
         fi
         
         # Save original pkgver and pkgrel before makepkg
+        # Use source to get expanded values (handles pkgver="$_tag" etc)
         local original_pkgver original_pkgrel original_epoch
-        original_pkgver=$(grep '^pkgver=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2)
-        original_pkgrel=$(grep '^pkgrel=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2)
-        original_epoch=$(grep '^epoch=' "$pkgbuild_dir/PKGBUILD" | cut -d= -f2 2>/dev/null || echo "")
+        eval "$(cd "$pkgbuild_dir" && source PKGBUILD 2>/dev/null && echo "original_pkgver='$pkgver'; original_pkgrel='$pkgrel'; original_epoch='${epoch:-}'")"
         
-        echo "    [makepkg] Original: pkgver=$original_pkgver, pkgrel=$original_pkgrel" >&2
+        echo "    [makepkg] Original (expanded): pkgver=$original_pkgver, pkgrel=$original_pkgrel" >&2
         echo "    [makepkg] 执行 makepkg --nobuild..." >&2
         local makepkg_err
         makepkg_err=$(mktemp)
