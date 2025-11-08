@@ -417,9 +417,18 @@ jobs:
           echo "date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
           echo "datetime=$(date +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
           
-          # 统计包数量
-          pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          # 从 packages.json 读取仓库总包数（包含所有包）
+          if [ -f output/packages.json ]; then
+            pkg_count=$(jq '.total_packages' output/packages.json)
+          else
+            # fallback: 统计目录中的包文件（仅用于异常情况）
+            pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          fi
           echo "package_count=$pkg_count" >> $GITHUB_OUTPUT
+          
+          # 统计本次构建的新包数量
+          new_pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          echo "new_package_count=$new_pkg_count" >> $GITHUB_OUTPUT
       
       - name: Clean old package versions from latest release
         env:
@@ -440,7 +449,8 @@ jobs:
             
             - 构建时间: ${{ steps.release-info.outputs.datetime }}
             - 提交: `${{ github.sha }}`
-            - 包数量: ${{ steps.release-info.outputs.package_count }}
+            - 仓库总包数: ${{ steps.release-info.outputs.package_count }}
+            - 本次更新: ${{ steps.release-info.outputs.new_package_count }} 个包
             
             ## 使用方法
             
@@ -473,7 +483,7 @@ jobs:
             
             - 构建时间: ${{ steps.release-info.outputs.datetime }}
             - 提交: `${{ github.sha }}`
-            - 包数量: ${{ steps.release-info.outputs.package_count }}
+            - 仓库总包数: ${{ steps.release-info.outputs.package_count }}
             
             此版本为自动创建的快照，可用于回滚到特定日期的包集合。
             
