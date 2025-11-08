@@ -24,6 +24,9 @@ ryzenadj-git
 ryzen_smu-dkms-git
 zenergy-dkms-git
 
+mesa-git
+lib32-mesa-git
+
 # bootc
 
 # 游戏和会话
