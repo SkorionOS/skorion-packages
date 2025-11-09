@@ -57,6 +57,7 @@ noto-fonts-cjk-fontconfig
 fcitx5-theme-wechat
 
 # 应用程序
+ayugram-desktop
 cursor-bin
 flatseal
 linuxqq
@@ -68,6 +69,7 @@ protonplus
 protonup-qt
 protontricks
 qqmusic-bin
+rustdesk-bin
 sx
 tsukimi-bin
 vboard
@@ -95,6 +97,7 @@ nautilus-copy-path
 nautilus-open-any-terminal
 
 # Hyprland 工具
+hypryou
 tofi
 wlogout-git
 
