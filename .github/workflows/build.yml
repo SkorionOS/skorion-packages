@@ -174,6 +174,16 @@ jobs:
         include: ${{ fromJson(needs.list-packages.outputs.all-packages) }}
     
     steps:
+      - name: Free Disk Space
+        uses: endersonmenezes/free-disk-space@v3
+        with:
+          remove_android: true
+          remove_dotnet: true
+          remove_haskell: true
+          rm_cmd: "rmz"  # Use 'rmz' for faster deletion (default: 'rm')
+          rmz_version: "3.1.1"  # Required when rm_cmd is 'rmz'
+          testing: false
+      
       - uses: actions/checkout@v4
       
       - name: Setup build environment
@@ -181,6 +191,7 @@ jobs:
           # 更新系统
           pacman -Syu --noconfirm
           pacman -S --noconfirm base-devel git sudo jq curl
+          pacman -Scc --noconfirm
           
           # 创建 builder 用户
           useradd -m -G wheel builder
