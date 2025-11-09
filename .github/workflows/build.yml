@@ -145,7 +145,7 @@ jobs:
         run: |
           # 更新系统
           pacman -Syu --noconfirm
-          pacman -S --noconfirm base-devel git sudo
+          pacman -S --noconfirm base-devel git sudo jq curl
           
           # 创建 builder 用户
           useradd -m -G wheel builder
