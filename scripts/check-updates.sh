@@ -272,10 +272,26 @@ else
         local url_path="$1"
         local output_dir="$2"
         local pkg_name="$3"
+        local git_hash="${4:-}"  # 可选：指定 commit hash
         
         # 方案1: 优先使用 git clone（更可靠）
         if git clone --depth 1 "https://aur.archlinux.org/${pkg_name}.git" "$output_dir/$pkg_name" >/dev/null 2>&1; then
+            # 如果指定了 commit，切换到该 commit
+            if [ -n "$git_hash" ]; then
+                if (cd "$output_dir/$pkg_name" && git fetch --depth 50 origin "$git_hash" >/dev/null 2>&1 && git checkout "$git_hash" >/dev/null 2>&1); then
+                    return 0
+                else
+                    # checkout 失败，清理并 fallback
+                    rm -rf "${output_dir:?}/${pkg_name:?}"
+                    return 1
+                fi
+            fi
             return 0
+        fi
+        
+        # 如果指定了 git_hash，不使用 snapshot fallback（snapshot 不支持指定 commit）
+        if [ -n "$git_hash" ]; then
+            return 1
         fi
         
         # 方案2: fallback 到 snapshot（如果 git clone 失败）
@@ -312,6 +328,12 @@ else
     check_aur_package_parallel() {
         local pkg_name="$1"
         local temp_dir="$2"
+        
+        # 跳过 pinned 包（由 pinned 逻辑单独处理）
+        if [ -f "aur-pinned.txt" ] && grep -q "^${pkg_name}=" "aur-pinned.txt" 2>/dev/null; then
+            echo "  → $pkg_name: pinned 包，跳过 AUR 版本检查"
+            return
+        fi
         
         # 检查是否在强制重建列表中
         log_debug "  [force-check] Checking if $pkg_name is in force rebuild list: $FORCE_REBUILD_LIST"
@@ -445,18 +467,93 @@ else
     rm -rf "$temp_dir"
 fi
 
-# 检查 pinned 包（始终构建）
+# ==============================================================================
+# 检测 Pinned 包更新
+# ==============================================================================
+
+# 检查单个 pinned 包
+check_pinned_package() {
+    local pkg_name="$1"
+    local git_hash="$2"
+    local old_ver="$3"
+    
+    # 没有指定 commit：只在缺失时构建
+    if [ -z "$git_hash" ]; then
+        if [ -z "$old_ver" ]; then
+            echo "  ✓ $pkg_name (pinned): 首次构建"
+            return 0  # 需要构建
+        else
+            echo "  → $pkg_name (pinned): 已存在 ($old_ver)"
+            return 1  # 不需要构建
+        fi
+    fi
+    
+    # 有指定 commit：检查版本
+    echo "  → $pkg_name (pinned@${git_hash:0:7}): 检查版本..."
+    
+    # 下载 PKGBUILD
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    
+    if ! download_and_extract_pkgbuild "" "$tmpdir" "$pkg_name" "$git_hash"; then
+        echo "  ⚠ $pkg_name: 下载失败，保守构建"
+        rm -rf "$tmpdir"
+        return 0  # 需要构建
+    fi
+    
+    # 查找 PKGBUILD
+    local pkgbuild_dir
+    pkgbuild_dir=$(find "$tmpdir" -name PKGBUILD -type f -exec dirname {} \; | head -1)
+    
+    if [ -z "$pkgbuild_dir" ]; then
+        echo "  ⚠ $pkg_name: 未找到 PKGBUILD，保守构建"
+        rm -rf "$tmpdir"
+        return 0  # 需要构建
+    fi
+    
+    # 计算版本
+    local current_ver
+    current_ver=$(compute_pkgver "$pkgbuild_dir")
+    rm -rf "$tmpdir"
+    
+    if [ -z "$current_ver" ]; then
+        echo "  ✓ $pkg_name: 无法计算版本，保守构建"
+        return 0  # 需要构建
+    fi
+    
+    # 版本对比
+    if [ -z "$old_ver" ]; then
+        echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
+        return 0  # 需要构建
+    elif [ "$current_ver" != "$old_ver" ]; then
+        echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
+        return 0  # 需要构建
+    else
+        echo "  → $pkg_name: 版本未变化 ($current_ver)"
+        return 1  # 不需要构建
+    fi
+}
+
+# 检查 pinned 包
 if [ -f "aur-pinned.txt" ]; then
     echo ""
     echo "==> 检查固定版本包"
-    while IFS='=' read -r pkg_name _; do
+    
+    export -f check_pinned_package
+    
+    while IFS='=' read -r pkg_name git_hash; do
         # 跳过注释和空行
         [[ "$pkg_name" =~ ^#.*$ ]] && continue
         [ -z "$pkg_name" ] && continue
         
-        echo "  → $pkg_name (pinned) 将被构建"
-        # 确保不重复添加
-        if ! grep -q "^${pkg_name}$" "$AUR_OUTPUT_FILE"; then
+        # 获取旧版本
+        old_ver=""
+        if [ -n "${OLD_VERSIONS[$pkg_name]}" ]; then
+            old_ver="${OLD_VERSIONS[$pkg_name]}"
+        fi
+        
+        # 检查是否需要构建
+        if check_pinned_package "$pkg_name" "$git_hash" "$old_ver"; then
             echo "$pkg_name" >> "$AUR_OUTPUT_FILE"
         fi
     done < aur-pinned.txt
