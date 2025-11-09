@@ -161,7 +161,19 @@ jobs:
           
           chown -R builder:builder $GITHUB_WORKSPACE
       
+      - name: Check build mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event.inputs.create_snapshot }}" = "true" ]; then
+            echo "snapshot=true" >> $GITHUB_OUTPUT
+            echo "==> 快照模式"
+          else
+            echo "snapshot=false" >> $GITHUB_OUTPUT
+            echo "==> 增量模式"
+          fi
+      
       - name: Build ${{ matrix.type }} package - ${{ matrix.package }}
+        id: build
         env:
           PACKAGE_NAME: ${{ matrix.package }}
           PACKAGE_TYPE: ${{ matrix.type }}
@@ -175,27 +187,145 @@ jobs:
             bash $GITHUB_WORKSPACE/scripts/build-single-package.sh '$PACKAGE_NAME' '$PACKAGE_TYPE'
           "
       
-      - name: Upload package artifacts
+      # 快照模式：上传 artifact（传统方式）
+      - name: Upload package artifact (snapshot mode)
+        if: success() && steps.mode.outputs.snapshot == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.type }}-${{ matrix.package }}
           path: output/*.pkg.tar.zst
           if-no-files-found: error
           retention-days: 1
+      
+      # 增量模式：实时上传到 latest release
+      - name: Acquire database lock (incremental mode)
+        id: lock
+        if: success() && steps.mode.outputs.snapshot == 'false'
+        continue-on-error: true
+        run: |
+          echo "==> 尝试获取数据库锁"
+          MAX_RETRIES=60
+          RETRY_COUNT=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/git/refs" \
+              -d "{\"ref\": \"refs/locks/database\", \"sha\": \"${{ github.sha }}\"}")
+            
+            if echo "$RESPONSE" | jq -e '.ref' >/dev/null 2>&1; then
+              echo "✓ 获取锁成功"
+              echo "locked=true" >> $GITHUB_OUTPUT
+              exit 0
+            elif echo "$RESPONSE" | grep -q "Reference already exists"; then
+              echo "锁被占用，等待中... ($((RETRY_COUNT+1))/$MAX_RETRIES)"
+              sleep 5
+              ((RETRY_COUNT++))
+            else
+              echo "⚠️ API 错误: $RESPONSE"
+              echo "跳过数据库更新"
+              echo "locked=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          
+          if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            echo "⚠️ 获取锁超时，将跳过数据库更新"
+            echo "包文件已上传，最终会由 finalize 任务统一更新数据库"
+            echo "locked=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+      
+      - name: Upload package to latest release (incremental mode)
+        if: success() && steps.mode.outputs.snapshot == 'false'
+        continue-on-error: true
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest
+          files: output/*.pkg.tar.zst
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Download and update database (incremental mode)
+        if: success() && steps.mode.outputs.snapshot == 'false' && steps.lock.outputs.locked == 'true'
+        run: |
+          echo "==> 下载并更新数据库"
+          
+          # 清理可能存在的旧文件
+          rm -f skorion.db.tar.gz skorion.files.tar.gz skorion.db skorion.files
+          
+          # 下载现有数据库
+          DB_EXISTS=false
+          if curl -sfL "https://github.com/${{ github.repository }}/releases/download/latest/skorion.db.tar.gz" \
+              -o skorion.db.tar.gz; then
+            echo "✓ 下载现有数据库成功"
+            
+            # 验证文件完整性
+            if [ -s skorion.db.tar.gz ] && tar -tzf skorion.db.tar.gz >/dev/null 2>&1; then
+              echo "✓ 数据库文件验证通过"
+              DB_EXISTS=true
+            else
+              echo "⚠️ 数据库文件损坏，将创建新数据库"
+              rm -f skorion.db.tar.gz
+              DB_EXISTS=false
+            fi
+          else
+            echo "首次创建数据库（未找到现有数据库）"
+            DB_EXISTS=false
+          fi
+          
+          # 增量添加新包
+          if [ "$DB_EXISTS" = "true" ]; then
+            echo "==> 更新现有数据库"
+            repo-add skorion.db.tar.gz output/*.pkg.tar.zst
+          else
+            echo "==> 创建新数据库"
+            repo-add skorion.db.tar.gz output/*.pkg.tar.zst
+          fi
+          
+          # 创建软链接
+          ln -sf skorion.db.tar.gz skorion.db
+          ln -sf skorion.files.tar.gz skorion.files
+          
+          echo "==> 数据库更新完成"
+      
+      - name: Upload updated database (incremental mode)
+        if: success() && steps.mode.outputs.snapshot == 'false' && steps.lock.outputs.locked == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest
+          files: |
+            skorion.db.tar.gz
+            skorion.files.tar.gz
+            skorion.db
+            skorion.files
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Release database lock
+        if: always() && steps.lock.outputs.locked == 'true'
+        run: |
+          echo "==> 释放数据库锁"
+          curl -X DELETE \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/locks/database" \
+            || echo "锁已被释放"
 
   # ===========================================================================
-  # Job 3: 收集所有包并生成完整仓库数据库
+  # Job 3: 快照模式 - 收集所有包并生成完整仓库数据库
   # ===========================================================================
-  generate-repo:
+  generate-snapshot:
     needs: [list-packages, build-packages]
-    name: Generate Repository
+    name: Generate Snapshot Repository
     runs-on: ubuntu-latest
     if: |
       always() && 
-      (needs.build-packages.result == 'success' || needs.build-packages.result == 'skipped') &&
-      needs.build-packages.result != 'failure' &&
-      needs.build-packages.result != 'cancelled' &&
-      (github.event.inputs.create_snapshot == 'true' || needs.list-packages.outputs.all-packages != '[]')
+      (github.event_name == 'schedule' || github.event.inputs.create_snapshot == 'true') &&
+      needs.build-packages.result != 'cancelled'
     container:
       image: archlinux:latest
     outputs:
@@ -388,28 +518,190 @@ jobs:
           retention-days: 7
 
   # ===========================================================================
+  # Job 4: 增量模式 - 清理和最终一致性检查
+  # ===========================================================================
+  finalize-incremental:
+    needs: [list-packages, build-packages]
+    name: Finalize Incremental Update
+    runs-on: ubuntu-latest
+    if: |
+      always() &&
+      github.event_name != 'schedule' &&
+      github.event.inputs.create_snapshot != 'true' &&
+      needs.build-packages.result != 'cancelled'
+    container:
+      image: archlinux:latest
+    outputs:
+      should-publish: ${{ steps.verify.outputs.should-continue }}
+      new-package-count: ${{ steps.verify.outputs.new-package-count }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm pacman-contrib curl jq
+      
+      - name: Clean up all lock refs
+        run: |
+          echo "==> 清理所有遗留的锁 refs"
+          
+          # 获取所有 locks refs
+          LOCKS=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/git/matching-refs/locks/" \
+            | jq -r '.[].ref // empty')
+          
+          if [ -z "$LOCKS" ]; then
+            echo "  没有遗留的锁"
+          else
+            echo "  发现遗留锁:"
+            echo "$LOCKS" | while read ref; do
+              echo "    - $ref"
+            done
+            
+            # 删除所有锁 refs
+            echo "$LOCKS" | while read ref; do
+              if [ -n "$ref" ]; then
+                echo "  删除: $ref"
+                curl -X DELETE \
+                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  "https://api.github.com/repos/${{ github.repository }}/git/$ref" \
+                  2>/dev/null || echo "    (删除失败或已不存在)"
+                sleep 0.5
+              fi
+            done
+          fi
+          
+          echo "==> 锁清理完成"
+      
+      - name: Download all packages from latest release
+        run: |
+          echo "==> 下载 latest release 中的所有包"
+          
+          # 获取 latest release 信息
+          LATEST_JSON=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" || echo "{}")
+          
+          # 检查是否存在
+          if echo "$LATEST_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
+            echo "  latest release 不存在（可能是首次构建后）"
+            echo "has_packages=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          # 下载所有包文件
+          mkdir -p output
+          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
+            filename=$(basename "$url")
+            echo "  下载 $filename"
+            curl -sL "$url" -o "output/$filename" || echo "    下载失败"
+          done
+          
+          # 检查是否有包
+          pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          if [ "$pkg_count" -gt 0 ]; then
+            echo "has_packages=true" >> $GITHUB_ENV
+            echo "==> 下载完成，共 $pkg_count 个包"
+          else
+            echo "has_packages=false" >> $GITHUB_ENV
+            echo "  没有包文件"
+          fi
+      
+      - name: Regenerate complete database
+        if: env.has_packages == 'true'
+        env:
+          OUTPUT_DIR: ./output
+        run: |
+          echo "==> 重新生成完整数据库（确保一致性）"
+          bash scripts/generate-repo.sh
+      
+      - name: Upload complete database and metadata
+        if: env.has_packages == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest
+          files: |
+            output/*.db.tar.gz
+            output/*.files.tar.gz
+            output/*.db
+            output/*.files
+            output/packages.json
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Count successfully built packages
+        id: count
+        run: |
+          # 统计本次构建的包数量
+          # 通过检查 needs.list-packages 的输出
+          total_count=$(echo '${{ needs.list-packages.outputs.all-packages }}' | jq 'length')
+          echo "new_packages=$total_count" >> $GITHUB_OUTPUT
+          echo "==> 本次构建: $total_count 个包"
+      
+      - name: Verify finalize result
+        id: verify
+        run: |
+          if [ "${{ env.has_packages }}" = "true" ]; then
+            echo "should-continue=true" >> $GITHUB_OUTPUT
+            echo "new-package-count=${{ steps.count.outputs.new_packages }}" >> $GITHUB_OUTPUT
+            echo "==> 最终化完成"
+          else
+            echo "should-continue=false" >> $GITHUB_OUTPUT
+            echo "new-package-count=0" >> $GITHUB_OUTPUT
+            echo "==> 无包需要发布"
+          fi
+
+  # ===========================================================================
   # Job 5: 发布到 GitHub Releases
   # ===========================================================================
   release:
-    needs: generate-repo
+    needs: [generate-snapshot, finalize-incremental]
     name: Publish Release
     runs-on: ubuntu-latest
     if: |
       always() &&
-      github.event_name != 'pull_request' && 
-      needs.generate-repo.result == 'success' &&
-      needs.generate-repo.outputs.should-publish == 'true'
+      github.event_name != 'pull_request' &&
+      (
+        (needs.generate-snapshot.result == 'success' && needs.generate-snapshot.outputs.should-publish == 'true') ||
+        (needs.finalize-incremental.result == 'success' && needs.finalize-incremental.outputs.should-publish == 'true')
+      )
     permissions:
       contents: write
     
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Check release mode
+        id: mode
+        run: |
+          if [ "${{ needs.generate-snapshot.result }}" = "success" ]; then
+            echo "mode=snapshot" >> $GITHUB_OUTPUT
+            echo "==> 快照模式"
+          else
+            echo "mode=incremental" >> $GITHUB_OUTPUT
+            echo "==> 增量模式"
+          fi
 
-      - name: Download repository artifacts
+      - name: Download repository artifacts (snapshot mode)
+        if: steps.mode.outputs.mode == 'snapshot'
         uses: actions/download-artifact@v4
         with:
           name: repository
           path: output/
+      
+      - name: Download from latest release (incremental mode)
+        if: steps.mode.outputs.mode == 'incremental'
+        run: |
+          echo "==> 增量模式：从 latest release 下载元数据"
+          mkdir -p output
+          
+          # 只下载 packages.json 用于统计
+          curl -sL "https://github.com/${{ github.repository }}/releases/download/latest/packages.json" \
+            -o output/packages.json || echo "{}" > output/packages.json
       
       - name: Generate release info
         id: release-info
@@ -426,11 +718,20 @@ jobs:
           fi
           echo "package_count=$pkg_count" >> $GITHUB_OUTPUT
           
-          # 统计本次构建的新包数量
-          new_pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          # 统计本次构建的新包数量（根据模式）
+          if [ "${{ steps.mode.outputs.mode }}" = "snapshot" ]; then
+            # 快照模式：统计 output 目录中的包
+            new_pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          else
+            # 增量模式：从 finalize-incremental 的输出获取
+            new_pkg_count="${{ needs.finalize-incremental.outputs.new-package-count }}"
+            # 如果为空，设置为 0
+            new_pkg_count="${new_pkg_count:-0}"
+          fi
           echo "new_package_count=$new_pkg_count" >> $GITHUB_OUTPUT
       
       - name: Clean old package versions from latest release
+        if: steps.mode.outputs.mode == 'snapshot' || steps.mode.outputs.mode == 'incremental'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_FULL: ${{ github.repository }}
@@ -439,7 +740,8 @@ jobs:
         run: |
           bash scripts/clean-old-assets.sh
       
-      - name: Update latest release
+      - name: Update latest release (snapshot mode)
+        if: steps.mode.outputs.mode == 'snapshot'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
@@ -468,6 +770,38 @@ jobs:
             ```
           files: output/*
           fail_on_unmatched_files: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Update latest release description (incremental mode)
+        if: steps.mode.outputs.mode == 'incremental'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest
+          name: Latest Build
+          body: |
+            **最新构建的 SkorionOS 包仓库**
+            
+            - 构建时间: ${{ steps.release-info.outputs.datetime }}
+            - 提交: `${{ github.sha }}`
+            - 仓库总包数: ${{ steps.release-info.outputs.package_count }}
+            - 本次更新: ${{ steps.release-info.outputs.new_package_count }} 个包
+            
+            ## 使用方法
+            
+            在 `/etc/pacman.conf` 添加：
+            ```ini
+            [skorion]
+            SigLevel = Optional TrustAll
+            Server = https://github.com/${{ github.repository }}/releases/download/latest
+            ```
+            
+            然后执行：
+            ```bash
+            sudo pacman -Sy
+            sudo pacman -S <package-name>
+            ```
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
