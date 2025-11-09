@@ -528,7 +528,8 @@ jobs:
       always() &&
       github.event_name != 'schedule' &&
       github.event.inputs.create_snapshot != 'true' &&
-      needs.build-packages.result != 'cancelled'
+      needs.build-packages.result != 'cancelled' &&
+      needs.list-packages.outputs.all-packages != '[]'
     container:
       image: archlinux:latest
     outputs:
@@ -578,19 +579,101 @@ jobs:
           
           echo "==> 锁清理完成"
       
-      - name: Download all packages from latest release
+      - name: Check database consistency
+        id: check-db
         run: |
-          echo "==> 下载 latest release 中的所有包"
+          echo "==> 检查数据库一致性"
           
           # 获取 latest release 信息
           LATEST_JSON=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" || echo "{}")
           
-          # 检查是否存在
+          # 检查 latest release 是否存在
           if echo "$LATEST_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
-            echo "  latest release 不存在（可能是首次构建后）"
+            echo "  latest release 不存在（首次构建后的第一次增量更新）"
+            echo "needs_rebuild=false" >> $GITHUB_OUTPUT
             echo "has_packages=false" >> $GITHUB_ENV
             exit 0
           fi
+          
+          # 下载当前数据库
+          mkdir -p output
+          echo "  下载当前数据库..."
+          if ! curl -sfL "https://github.com/${{ github.repository }}/releases/download/latest/skorion.db.tar.gz" -o output/skorion.db.tar.gz; then
+            echo "  ⚠️ 数据库下载失败或不存在，需要重建"
+            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
+            echo "has_packages=true" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          # 提取数据库中的包列表
+          echo "  提取数据库包列表..."
+          mkdir -p db_temp
+          tar -xzf output/skorion.db.tar.gz -C db_temp 2>/dev/null || {
+            echo "  ⚠️ 数据库文件损坏，需要重建"
+            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
+            echo "has_packages=true" >> $GITHUB_ENV
+            rm -rf db_temp output/skorion.db.tar.gz
+            exit 0
+          }
+          
+          # 从 desc 文件中提取包名和版本
+          db_packages=$(for desc_file in db_temp/*/desc; do
+            if [ -f "$desc_file" ]; then
+              pkg_name=""
+              pkg_version=""
+              pkg_arch=""
+              while IFS= read -r line; do
+                if [ "$line" = "%NAME%" ]; then
+                  read -r pkg_name
+                elif [ "$line" = "%VERSION%" ]; then
+                  read -r pkg_version
+                elif [ "$line" = "%ARCH%" ]; then
+                  read -r pkg_arch
+                fi
+              done < "$desc_file"
+              if [ -n "$pkg_name" ] && [ -n "$pkg_version" ] && [ -n "$pkg_arch" ]; then
+                echo "${pkg_name}-${pkg_version}-${pkg_arch}.pkg.tar.zst"
+              fi
+            fi
+          done | sort)
+          
+          rm -rf db_temp
+          
+          # 获取 latest release 中的实际包列表
+          echo "  获取 release 包列表..."
+          release_packages=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | sort)
+          
+          # 对比包列表
+          db_count=$(echo -n "$db_packages" | grep -c . || echo 0)
+          release_count=$(echo -n "$release_packages" | grep -c . || echo 0)
+          
+          echo "  数据库包数量: $db_count"
+          echo "  Release 包数量: $release_count"
+          
+          if [ "$db_packages" = "$release_packages" ]; then
+            echo "  ✓ 数据库一致，无需重建"
+            echo "needs_rebuild=false" >> $GITHUB_OUTPUT
+            echo "has_packages=false" >> $GITHUB_ENV
+          else
+            echo "  ⚠️ 数据库不一致，需要重建"
+            # 显示差异（仅前 10 个）
+            if [ -n "$db_packages" ] && [ -n "$release_packages" ]; then
+              echo "  数据库中但 release 中没有的包:"
+              comm -23 <(printf '%s\n' "$db_packages") <(printf '%s\n' "$release_packages") | head -10 || true
+              echo "  release 中但数据库中没有的包:"
+              comm -13 <(printf '%s\n' "$db_packages") <(printf '%s\n' "$release_packages") | head -10 || true
+            fi
+            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
+            echo "has_packages=true" >> $GITHUB_ENV
+          fi
+      
+      - name: Download all packages from latest release
+        if: steps.check-db.outputs.needs_rebuild == 'true'
+        run: |
+          echo "==> 下载所有包以重建数据库"
+          
+          # 获取 latest release 信息
+          LATEST_JSON=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest")
           
           # 下载所有包文件
           mkdir -p output
@@ -600,26 +683,20 @@ jobs:
             curl -sL "$url" -o "output/$filename" || echo "    下载失败"
           done
           
-          # 检查是否有包
+          # 统计下载的包数量
           pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
-          if [ "$pkg_count" -gt 0 ]; then
-            echo "has_packages=true" >> $GITHUB_ENV
-            echo "==> 下载完成，共 $pkg_count 个包"
-          else
-            echo "has_packages=false" >> $GITHUB_ENV
-            echo "  没有包文件"
-          fi
+          echo "==> 下载完成，共 $pkg_count 个包"
       
       - name: Regenerate complete database
-        if: env.has_packages == 'true'
+        if: steps.check-db.outputs.needs_rebuild == 'true'
         env:
           OUTPUT_DIR: ./output
         run: |
-          echo "==> 重新生成完整数据库（确保一致性）"
+          echo "==> 重新生成完整数据库"
           bash scripts/generate-repo.sh
       
       - name: Upload complete database and metadata
-        if: env.has_packages == 'true'
+        if: steps.check-db.outputs.needs_rebuild == 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
@@ -645,10 +722,18 @@ jobs:
       - name: Verify finalize result
         id: verify
         run: |
-          if [ "${{ env.has_packages }}" = "true" ]; then
+          # 只要有包构建了，就算成功（即使数据库一致无需重建）
+          new_count=${{ steps.count.outputs.new_packages }}
+          
+          if [ "$new_count" -gt 0 ]; then
             echo "should-continue=true" >> $GITHUB_OUTPUT
-            echo "new-package-count=${{ steps.count.outputs.new_packages }}" >> $GITHUB_OUTPUT
-            echo "==> 最终化完成"
+            echo "new-package-count=$new_count" >> $GITHUB_OUTPUT
+            
+            if [ "${{ steps.check-db.outputs.needs_rebuild }}" = "true" ]; then
+              echo "==> 最终化完成（已重建数据库）"
+            else
+              echo "==> 最终化完成（数据库一致，已由增量更新维护）"
+            fi
           else
             echo "should-continue=false" >> $GITHUB_OUTPUT
             echo "new-package-count=0" >> $GITHUB_OUTPUT

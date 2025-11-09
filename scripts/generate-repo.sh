@@ -29,7 +29,7 @@ else
         # 删除软链接但保留数据库文件
         rm -f "${REPO_NAME}.db" "${REPO_NAME}.files"
     else
-        echo "==> 首次构建，创建新数据库"
+        echo "==> 创建新数据库（完整重建或首次构建）"
         # 删除可能存在的旧文件
         rm -f "${REPO_NAME}.db" "${REPO_NAME}.db.tar.gz" "${REPO_NAME}.files" "${REPO_NAME}.files.tar.gz"
     fi
