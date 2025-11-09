@@ -37,21 +37,21 @@ jobs:
           
           echo ""
           echo "开始清理..."
-          deleted_count=0
           
           echo "$LOCKS" | while read ref; do
             if [ -n "$ref" ]; then
               echo "  删除: $ref"
-              http_code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+              HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
                 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
                 -H "Accept: application/vnd.github.v3+json" \
                 "https://api.github.com/repos/${{ github.repository }}/git/$ref")
               
-              if [ "$http_code" = "204" ]; then
-                deleted_count=$((deleted_count + 1))
+              if [ "$HTTP_CODE" = "204" ]; then
                 echo "    ✓ 删除成功"
+              elif [ "$HTTP_CODE" = "404" ]; then
+                echo "    ⚠ 已不存在"
               else
-                echo "    ⚠ 删除失败 (HTTP $http_code)"
+                echo "    ⚠ 删除失败 (HTTP $HTTP_CODE)"
               fi
               
               sleep 0.3

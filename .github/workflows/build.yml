@@ -76,11 +76,18 @@ jobs:
             echo "$LOCKS" | while read ref; do
               if [ -n "$ref" ]; then
                 echo "    删除: $ref"
-                curl -X DELETE \
+                HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
                   -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
                   -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/${{ github.repository }}/git/$ref" \
-                  2>/dev/null || true
+                  "https://api.github.com/repos/${{ github.repository }}/git/$ref")
+                
+                if [ "$HTTP_CODE" = "204" ]; then
+                  echo "      ✓ 删除成功"
+                elif [ "$HTTP_CODE" = "404" ]; then
+                  echo "      ⚠ 已不存在"
+                else
+                  echo "      ⚠ 删除失败 (HTTP $HTTP_CODE)"
+                fi
                 sleep 0.3
               fi
             done
@@ -337,11 +344,19 @@ jobs:
         if: always() && steps.lock.outputs.locked == 'true'
         run: |
           echo "==> 释放数据库锁"
-          curl -X DELETE \
+          
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/git/refs/locks/database" \
-            || echo "锁已被释放"
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/locks/database")
+          
+          if [ "$HTTP_CODE" = "204" ]; then
+            echo "✓ 锁释放成功"
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "⚠ 锁不存在（可能已被其他任务释放）"
+          else
+            echo "⚠ 锁释放失败 (HTTP $HTTP_CODE)，但不影响流程"
+          fi
 
   # ===========================================================================
   # Job 3: 快照模式 - 收集所有包并生成完整仓库数据库
@@ -595,11 +610,18 @@ jobs:
             echo "$LOCKS" | while read ref; do
               if [ -n "$ref" ]; then
                 echo "  删除: $ref"
-                curl -X DELETE \
+                HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
                   -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
                   -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/${{ github.repository }}/git/$ref" \
-                  2>/dev/null || echo "    (删除失败或已不存在)"
+                  "https://api.github.com/repos/${{ github.repository }}/git/$ref")
+                
+                if [ "$HTTP_CODE" = "204" ]; then
+                  echo "    ✓ 删除成功"
+                elif [ "$HTTP_CODE" = "404" ]; then
+                  echo "    ⚠ 已不存在"
+                else
+                  echo "    ⚠ 删除失败 (HTTP $HTTP_CODE)"
+                fi
                 sleep 0.5
               fi
             done
