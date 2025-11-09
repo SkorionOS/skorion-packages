@@ -214,14 +214,14 @@ jobs:
               "https://api.github.com/repos/${{ github.repository }}/git/refs" \
               -d "{\"ref\": \"refs/locks/database\", \"sha\": \"${{ github.sha }}\"}")
             
-            if echo "$RESPONSE" | jq -e '.ref' >/dev/null 2>&1; then
+            if echo "$RESPONSE" | jq -e '.object' >/dev/null 2>&1; then
               echo "✓ 获取锁成功"
               echo "locked=true" >> $GITHUB_OUTPUT
               exit 0
-            elif echo "$RESPONSE" | grep -q "Reference already exists"; then
+            elif echo "$RESPONSE" | grep -q "already exists"; then
               echo "锁被占用，等待中... ($((RETRY_COUNT+1))/$MAX_RETRIES)"
               sleep 5
-              ((RETRY_COUNT++))
+              RETRY_COUNT=$((RETRY_COUNT+1))
             else
               echo "⚠️ API 错误: $RESPONSE"
               echo "跳过数据库更新"
