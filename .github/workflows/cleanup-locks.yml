@@ -1,0 +1,63 @@
+name: Cleanup Locks
+
+on:
+  # 手动触发
+  workflow_dispatch:
+  
+  # 在主工作流完成后自动触发（无论成功、失败还是取消）
+  workflow_run:
+    workflows: ["Build Packages"]
+    types:
+      - completed  # 包括 success, failure, cancelled
+
+jobs:
+  cleanup:
+    name: Clean Up All Locks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean up all lock refs
+        run: |
+          echo "==> 开始清理所有锁 refs"
+          
+          LOCKS=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/git/matching-refs/locks/" \
+            | jq -r '.[].ref // empty' 2>/dev/null || echo "")
+          
+          if [ -z "$LOCKS" ]; then
+            echo "✓ 没有需要清理的锁"
+            exit 0
+          fi
+          
+          echo "发现以下锁:"
+          echo "$LOCKS" | while read ref; do
+            echo "  - $ref"
+          done
+          
+          echo ""
+          echo "开始清理..."
+          deleted_count=0
+          
+          echo "$LOCKS" | while read ref; do
+            if [ -n "$ref" ]; then
+              echo "  删除: $ref"
+              http_code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/${{ github.repository }}/git/$ref")
+              
+              if [ "$http_code" = "204" ]; then
+                deleted_count=$((deleted_count + 1))
+                echo "    ✓ 删除成功"
+              else
+                echo "    ⚠ 删除失败 (HTTP $http_code)"
+              fi
+              
+              sleep 0.3
+            fi
+          done
+          
+          echo ""
+          echo "==> 清理完成"
+

@@ -59,6 +59,34 @@ jobs:
           # jq, curl, tar, findutils, meson: 脚本依赖
           pacman -S --noconfirm base-devel git svn mercurial bzr cargo rust jq curl tar findutils sudo meson
       
+      - name: Clean up stale locks from previous runs
+        run: |
+          echo "==> 清理之前可能遗留的锁"
+          
+          LOCKS=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/git/matching-refs/locks/" \
+            | jq -r '.[].ref // empty' 2>/dev/null || echo "")
+          
+          if [ -z "$LOCKS" ]; then
+            echo "  ✓ 没有遗留的锁"
+          else
+            echo "  发现遗留的锁，开始清理..."
+            echo "$LOCKS" | while read ref; do
+              if [ -n "$ref" ]; then
+                echo "    删除: $ref"
+                curl -X DELETE \
+                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  "https://api.github.com/repos/${{ github.repository }}/git/$ref" \
+                  2>/dev/null || true
+                sleep 0.3
+              fi
+            done
+            echo "  ✓ 清理完成"
+          fi
+      
       - name: Setup builder user
         run: |
           # 创建 builder 用户（makepkg 不允许 root 运行）
