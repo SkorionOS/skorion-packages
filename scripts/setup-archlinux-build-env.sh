@@ -13,7 +13,7 @@ echo -e "keyserver-options auto-key-retrieve" >> /etc/gnupg/gpg.conf
 # Update system and install dependencies
 echo "  → Installing base packages"
 pacman -Syu --noconfirm
-pacman -S --noconfirm base-devel git sudo jq curl
+pacman -S --noconfirm base-devel git sudo jq curl libdisplay-info
 pacman -Scc --noconfirm
 
 # Create builder user
