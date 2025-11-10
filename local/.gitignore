@@ -1,4 +1,5 @@
 *.SRCINFO
+*.sig
 *.tar.xz
 *.tar.zst
 *.tar.gz
