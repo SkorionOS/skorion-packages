@@ -18,7 +18,7 @@ echo "  → Setting up multilib"
 } >> /etc/pacman.conf
 
 # Update system and install dependencies
-BUILD_PACKAGES="base-devel git sudo jq curl libdisplay-info"
+BUILD_PACKAGES="base-devel git sudo jq curl libdisplay-info lib32-libdisplay-info"
 echo "  → Installing build packages: $BUILD_PACKAGES"
 echo "  → Installing base packages"
 pacman-key --init
