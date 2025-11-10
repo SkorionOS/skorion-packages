@@ -5,6 +5,11 @@ set -e
 
 echo "==> Setting up Arch Linux build environment"
 
+# Setup GPG
+echo "  → Setting up GPG"
+mkdir -p /etc/gnupg/
+echo -e "keyserver-options auto-key-retrieve" >> /etc/gnupg/gpg.conf
+
 # Update system and install dependencies
 echo "  → Installing base packages"
 pacman -Syu --noconfirm
