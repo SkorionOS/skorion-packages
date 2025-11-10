@@ -617,6 +617,16 @@ jobs:
           
           echo "==> 锁清理完成"
       
+      - name: Clean old package versions before consistency check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_FULL: ${{ github.repository }}
+          OUTPUT_DIR: ./output
+          RELEASE_TAG: latest
+        run: |
+          echo "==> 清理旧包版本以确保一致性检查准确"
+          bash scripts/clean-old-assets.sh
+      
       - name: Check database consistency
         id: check-db
         run: |
@@ -861,6 +871,8 @@ jobs:
           OUTPUT_DIR: ./output
           RELEASE_TAG: latest
         run: |
+          # Note: Incremental mode already cleaned in finalize-incremental job
+          # This is kept as a safeguard for snapshot mode and edge cases
           bash scripts/clean-old-assets.sh
       
       - name: Update latest release (snapshot mode)
