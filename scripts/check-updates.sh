@@ -143,11 +143,11 @@ if [ "$FIRST_BUILD" = false ]; then
         
         # 输出解析结果
         echo "==> 已解析 ${#OLD_VERSIONS[@]} 个包的版本"
-        if [ "${LOG_LEVEL:-INFO}" = "DEBUG" ]; then
-            for pkg_name in "${!OLD_VERSIONS[@]}"; do
-                echo "  旧: $pkg_name = ${OLD_VERSIONS[$pkg_name]}"
-            done | sort
-        fi
+        
+        # 显示所有包的版本列表
+        for pkg_name in "${!OLD_VERSIONS[@]}"; do
+            echo "  旧: $pkg_name = ${OLD_VERSIONS[$pkg_name]}"
+        done | sort
     fi
 fi
 
