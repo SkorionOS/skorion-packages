@@ -529,7 +529,7 @@ check_pinned_package() {
         return 0  # 需要构建
     fi
     
-    # 查找 PKGBUILD
+    # 查找 PKGBUILD 目录
     local pkgbuild_dir
     pkgbuild_dir=$(find "$tmpdir" -name PKGBUILD -type f -exec dirname {} \; | head -1)
     
@@ -539,27 +539,30 @@ check_pinned_package() {
         return 0  # 需要构建
     fi
     
-    # 计算版本
-    local current_ver
-    current_ver=$(compute_pkgver "$pkgbuild_dir")
-    rm -rf "$tmpdir"
+    # 创建临时目录用于版本检测（适配 check_package_version 的接口）
+    local temp_check_dir
+    temp_check_dir=$(mktemp -d)
     
-    if [ -z "$current_ver" ]; then
-        echo "  ✓ $pkg_name: 无法计算版本，保守构建"
-        return 0  # 需要构建
-    fi
-    
-    # 版本对比
-    if [ -z "$old_ver" ]; then
-        echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
-        return 0  # 需要构建
-    elif [ "$current_ver" != "$old_ver" ]; then
-        echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
-        return 0  # 需要构建
+    # 准备旧版本信息
+    if [ -n "$old_ver" ]; then
+        echo "${pkg_name}=${old_ver}" > "$temp_check_dir/old_versions.txt"
     else
-        echo "  → $pkg_name: 版本未变化 ($current_ver)"
-        return 1  # 不需要构建
+        touch "$temp_check_dir/old_versions.txt"
     fi
+    
+    # 使用统一的版本检测函数
+    check_package_version "$pkgbuild_dir" "$pkg_name" "$temp_check_dir"
+    
+    # 检查是否需要构建
+    local needs_build=1
+    if [ -f "$temp_check_dir/${pkg_name}.build" ]; then
+        needs_build=0
+    fi
+    
+    # 清理
+    rm -rf "$tmpdir" "$temp_check_dir"
+    
+    return $needs_build
 }
 
 # 检查 pinned 包
