@@ -7,10 +7,12 @@
 #   REPO_NAME           - 仓库名称
 #   FORCE_REBUILD       - 强制重建的包列表(逗号分隔)
 #   LOG_LEVEL           - 日志级别: DEBUG, INFO(默认), WARN, ERROR
+#   PARALLEL_JOBS       - 并行检查的包数量
 #
 # 使用示例:
 #   LOG_LEVEL=DEBUG bash scripts/check-updates.sh
 #   FORCE_REBUILD=package1,package2 bash scripts/check-updates.sh
+#   PARALLEL_JOBS=10 bash scripts/check-updates.sh
 
 set -e
 
@@ -20,6 +22,9 @@ AUR_OUTPUT_FILE="${AUR_OUTPUT_FILE:-updated-aur-packages.txt}"
 LOCAL_OUTPUT_FILE="${LOCAL_OUTPUT_FILE:-updated-local-packages.txt}"
 FORCE_REBUILD="${FORCE_REBUILD:-}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARN, ERROR
+
+# 并发检查配置
+PARALLEL_JOBS="${PARALLEL_JOBS:-8}"  # 并行检查包的数量
 
 # ==============================================================================
 # 日志函数
@@ -259,7 +264,68 @@ else
     
     export -f compute_pkgver
     
-    # 4. 下载 AUR PKGBUILD（优先 git clone）
+    # 4. 统一的版本检测和比较函数
+    check_package_version() {
+        local pkgbuild_dir="$1"   # PKGBUILD 所在目录
+        local pkg_name="$2"       # 包名
+        local temp_dir="$3"       # 临时目录
+        
+        if [ ! -f "$pkgbuild_dir/PKGBUILD" ]; then
+            echo "  ⚠ $pkg_name: PKGBUILD 不存在" >&2
+            return 1
+        fi
+        
+        local current_ver
+        
+        # 1. 获取当前版本
+        if grep -qE '^\s*pkgver\s*\(\)' "$pkgbuild_dir/PKGBUILD"; then
+            # 有 pkgver() 函数，计算真实版本
+            echo "  → $pkg_name: 检测到 pkgver() 函数，计算真实版本..."
+            current_ver=$(compute_pkgver "$pkgbuild_dir")
+            
+            if [ -z "$current_ver" ]; then
+                echo "  ✓ $pkg_name: 无法计算版本，保守构建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                return 0
+            fi
+        else
+            # 无 pkgver() 函数，直接从 PKGBUILD 提取（包含 epoch）
+            current_ver=$(
+                cd "$pkgbuild_dir" || exit 1
+                source PKGBUILD 2>/dev/null || exit 1
+                if [ -n "${epoch:-}" ]; then
+                    echo "${epoch}:${pkgver}-${pkgrel}"
+                else
+                    echo "${pkgver}-${pkgrel}"
+                fi
+            )
+            
+            if [ -z "$current_ver" ]; then
+                echo "  ⚠ $pkg_name: 无法提取版本" >&2
+                return 1
+            fi
+        fi
+        
+        # 2. 比较版本并决定是否构建
+        local old_ver
+        old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
+        
+        if [ -z "$old_ver" ]; then
+            echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
+            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+        elif [ "$current_ver" != "$old_ver" ]; then
+            echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
+            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+        else
+            echo "  → $pkg_name: 版本未变化 ($current_ver)"
+        fi
+        
+        return 0
+    }
+    
+    export -f check_package_version
+    
+    # 5. 下载 AUR PKGBUILD（优先 git clone）
     download_and_extract_pkgbuild() {
         local url_path="$1"
         local output_dir="$2"
@@ -372,85 +438,55 @@ else
         
         if ! download_and_extract_pkgbuild "$url_path" "$tmpdir" "$pkg_name"; then
             rm -rf "$tmpdir"
-            # 下载失败，进行普通版本对比
+            # 下载失败，使用 AUR API 版本进行比对
             current_ver=$(echo "$pkg_info" | jq -r '.Version')
-            old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
-            
-            if [ -z "$old_ver" ] || [ "$current_ver" != "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 版本变化（下载 PKGBUILD 失败），需要构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-            else
-                echo "  → $pkg_name: 版本未变化 ($current_ver)"
-            fi
-            return
-        fi
-        
-        # 查找 PKGBUILD
-        local pkgbuild_file
-        pkgbuild_file=$(find "$tmpdir" -name PKGBUILD -type f | head -1)
-        
-        if [ -z "$pkgbuild_file" ] || [ ! -f "$pkgbuild_file" ]; then
-            rm -rf "$tmpdir"
-            echo "  ⚠ $pkg_name: 未找到 PKGBUILD，使用 AUR 版本对比" >&2
-            current_ver=$(echo "$pkg_info" | jq -r '.Version')
-            old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
-            
-            if [ -z "$old_ver" ] || [ "$current_ver" != "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 版本变化，需要构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-            fi
-            return
-        fi
-        
-        # 检查是否有 pkgver() 函数
-        if ! grep -qE '^\s*pkgver\s*\(\)' "$pkgbuild_file"; then
-            rm -rf "$tmpdir"
-            # 没有 pkgver()，使用 AUR 版本对比
-            current_ver=$(echo "$pkg_info" | jq -r '.Version')
-            old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
-            
-            if [ -z "$old_ver" ] || [ "$current_ver" != "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-            else
-                echo "  → $pkg_name: 版本未变化 ($current_ver)"
-            fi
-            return
-        fi
-        
-        # 有 pkgver()，计算真实版本
-        echo "  → $pkg_name: 检测到 pkgver() 函数，计算真实版本..."
-        local pkgbuild_dir real_ver
-        pkgbuild_dir=$(dirname "$pkgbuild_file")
-        real_ver=$(compute_pkgver "$pkgbuild_dir")
-        rm -rf "$tmpdir"
-        
-        if [ -n "$real_ver" ]; then
-            # 成功获取真实版本
             old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
             
             if [ -z "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 新包 ($real_ver)，需要构建"
+                echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
                 echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-            elif [ "$real_ver" != "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 版本变化 $old_ver → $real_ver，需要构建"
+            elif [ "$current_ver" != "$old_ver" ]; then
+                echo "  ✓ $pkg_name: 版本变化（下载失败，使用 AUR 版本）$old_ver → $current_ver，需要构建"
                 echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
             else
-                echo "  → $pkg_name: 版本未变化 ($real_ver)"
+                echo "  → $pkg_name: 版本未变化 ($current_ver)"
             fi
-        else
-            # 无法计算真实版本，保守构建
-            echo "  ✓ $pkg_name: 无法计算版本，保守构建"
-            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            return
         fi
+        
+        # 查找 PKGBUILD 目录
+        local pkgbuild_dir
+        pkgbuild_dir=$(find "$tmpdir" -name PKGBUILD -type f -exec dirname {} \; | head -1)
+        
+        if [ -z "$pkgbuild_dir" ] || [ ! -f "$pkgbuild_dir/PKGBUILD" ]; then
+            rm -rf "$tmpdir"
+            # 未找到 PKGBUILD，使用 AUR API 版本
+            current_ver=$(echo "$pkg_info" | jq -r '.Version')
+            old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
+            
+            if [ -z "$old_ver" ]; then
+                echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            elif [ "$current_ver" != "$old_ver" ]; then
+                echo "  ✓ $pkg_name: 版本变化（未找到 PKGBUILD）$old_ver → $current_ver，需要构建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            else
+                echo "  → $pkg_name: 版本未变化 ($current_ver)"
+            fi
+            return
+        fi
+        
+        # 使用统一的版本检测函数
+        check_package_version "$pkgbuild_dir" "$pkg_name" "$temp_dir"
+        rm -rf "$tmpdir"
     }
     
     export -f check_aur_package_parallel
     
-    # 6. 并行检查（5 个并发，因为 makepkg --nobuild 会下载源码）
-    echo "  → 并行检查包更新（5 并发）"
+    # 6. 并行检查（因为 makepkg --nobuild 会下载源码）
+    echo "  → 并行检查包更新（$PARALLEL_JOBS 并发）"
     grep -v '^#' aur.conf | grep -v '^$' | \
-        xargs -I {} -P 5 bash -c 'check_aur_package_parallel "$@"' _ {} "$temp_dir"
+        xargs -I {} -P "$PARALLEL_JOBS" bash -c 'check_aur_package_parallel "$@"' _ {} "$temp_dir"
     
     # 7. 收集结果
     cat "$temp_dir"/*.build 2>/dev/null > "$AUR_OUTPUT_FILE" || true
@@ -600,68 +636,15 @@ else
         log_debug "$pkg_name: Checking at $pkg_dir"
         log_debug "$pkg_name: pkgrel in file = $(grep '^pkgrel=' "$pkg_dir/PKGBUILD" 2>/dev/null)"
         
-        # 检查是否有 pkgver() 函数
-        if grep -qE '^\s*pkgver\s*\(\)' "$pkg_dir/PKGBUILD"; then
-            echo "  → $pkg_name: 检测到 pkgver() 函数，计算真实版本..."
-            
-            # 先直接读取 PKGBUILD 中的静态值
-            local static_pkgrel static_pkgver
-            static_pkgrel=$(grep '^pkgrel=' "$pkg_dir/PKGBUILD" | cut -d= -f2)
-            static_pkgver=$(grep '^pkgver=' "$pkg_dir/PKGBUILD" | cut -d= -f2)
-            log_debug "$pkg_name: Static values - pkgver=$static_pkgver, pkgrel=$static_pkgrel"
-            
-            local real_ver
-            real_ver=$(compute_pkgver "$pkg_dir")
-            log_debug "$pkg_name: compute_pkgver returned: '$real_ver'"
-            
-            if [ -n "$real_ver" ]; then
-                # 成功获取真实版本，进行对比
-                old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
-                log_debug "$pkg_name: Old version from latest release: '$old_ver'"
-                log_debug "$pkg_name: New computed version: '$real_ver'"
-                
-                if [ -z "$old_ver" ]; then
-                    echo "  ✓ $pkg_name: 新包 ($real_ver)，需要构建"
-                    echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-                elif [ "$real_ver" != "$old_ver" ]; then
-                    echo "  ✓ $pkg_name: 版本变化 $old_ver → $real_ver，需要构建"
-                    echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-                else
-                    echo "  → $pkg_name: 版本未变化 ($real_ver)"
-                fi
-            else
-                # 无法获取真实版本，保守构建
-                echo "  ✓ $pkg_name: 无法计算版本，保守构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-            fi
-            return
-        fi
-        
-        # 提取 PKGBUILD 中的版本
-        (
-            source "$pkg_dir/PKGBUILD" 2>/dev/null || exit 1
-            current_ver="${pkgver}-${pkgrel}"
-            
-            # 对比版本
-            old_ver=$(grep "^${pkg_name}=" "$temp_dir/old_versions.txt" 2>/dev/null | cut -d= -f2-)
-            
-            if [ -z "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-            elif [ "$current_ver" != "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
-            else
-                echo "  → $pkg_name: 版本未变化 ($current_ver)"
-            fi
-        )
+        # 使用统一的版本检测函数
+        check_package_version "$pkg_dir" "$pkg_name" "$temp_dir"
     }
     
     export -f check_local_package_parallel
     
-    # 并行检查（5 个并发，本地包数量较少）
+    # 并行检查（本地包数量较少）
     find local -mindepth 1 -maxdepth 1 -type d -print0 | \
-        xargs -0 -I {} -P 5 bash -c 'check_local_package_parallel "$@"' _ {} "$temp_dir"
+        xargs -0 -I {} -P "$PARALLEL_JOBS" bash -c 'check_local_package_parallel "$@"' _ {} "$temp_dir"
     
     # 收集结果
     cat "$temp_dir"/*.build 2>/dev/null > "$LOCAL_OUTPUT_FILE" || true
