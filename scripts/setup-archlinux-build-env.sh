@@ -21,6 +21,8 @@ echo "  → Setting up multilib"
 BUILD_PACKAGES="base-devel git sudo jq curl libdisplay-info"
 echo "  → Installing build packages: $BUILD_PACKAGES"
 echo "  → Installing base packages"
+pacman-key --init
+pacman-key --populate archlinux
 pacman -Syu --noconfirm
 pacman -S --noconfirm $BUILD_PACKAGES
 pacman -Scc --noconfirm
