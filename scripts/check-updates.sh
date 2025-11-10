@@ -202,7 +202,7 @@ else
         # Save original pkgver and pkgrel before makepkg
         # Use source to get expanded values (handles pkgver="$_tag" etc)
         local original_pkgver original_pkgrel original_epoch
-        eval "$(cd "$pkgbuild_dir" && source PKGBUILD 2>/dev/null && echo "original_pkgver='$pkgver'; original_pkgrel='$pkgrel'; original_epoch='${epoch:-}'")"
+        eval "$(cd "$pkgbuild_dir" && unset epoch pkgver pkgrel && source PKGBUILD 2>/dev/null && echo "original_pkgver='$pkgver'; original_pkgrel='$pkgrel'; original_epoch='${epoch:-}'")"
         
         echo "    [makepkg] Original (expanded): pkgver=$original_pkgver, pkgrel=$original_pkgrel" >&2
         echo "    [makepkg] 执行 makepkg --nobuild..." >&2
@@ -214,8 +214,8 @@ else
             # Read new pkgver after makepkg executed pkgver()
             # Use source to get expanded variable values (handles pkgver="$_tag" etc)
             local new_pkgver new_pkgrel
-            new_pkgver=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "$pkgver"')
-            new_pkgrel=$(cd "$pkgbuild_dir" && bash -c 'source PKGBUILD 2>/dev/null && echo "$pkgrel"')
+            new_pkgver=$(cd "$pkgbuild_dir" && bash -c 'unset epoch pkgver pkgrel && source PKGBUILD 2>/dev/null && echo "$pkgver"')
+            new_pkgrel=$(cd "$pkgbuild_dir" && bash -c 'unset epoch pkgver pkgrel && source PKGBUILD 2>/dev/null && echo "$pkgrel"')
             
             echo "    [makepkg] After makepkg: pkgver=$new_pkgver, pkgrel=$new_pkgrel" >&2
             
@@ -292,6 +292,8 @@ else
             # 无 pkgver() 函数，直接从 PKGBUILD 提取（包含 epoch）
             current_ver=$(
                 cd "$pkgbuild_dir" || exit 1
+                # 清除可能继承自父 shell 的变量，防止污染
+                unset epoch pkgver pkgrel
                 source PKGBUILD 2>/dev/null || exit 1
                 if [ -n "${epoch:-}" ]; then
                     echo "${epoch}:${pkgver}-${pkgrel}"
