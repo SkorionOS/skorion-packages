@@ -18,9 +18,11 @@ echo "  → Setting up multilib"
 } >> /etc/pacman.conf
 
 # Update system and install dependencies
+BUILD_PACKAGES="base-devel git sudo jq curl libdisplay-info"
+echo "  → Installing build packages: $BUILD_PACKAGES"
 echo "  → Installing base packages"
 pacman -Syu --noconfirm
-pacman -S --noconfirm base-devel git sudo jq curl libdisplay-info
+pacman -S --noconfirm $BUILD_PACKAGES
 pacman -Scc --noconfirm
 
 # Create builder user
