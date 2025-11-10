@@ -10,6 +10,13 @@ echo "  → Setting up GPG"
 mkdir -p /etc/gnupg/
 echo -e "keyserver-options auto-key-retrieve" >> /etc/gnupg/gpg.conf
 
+echo "  → Setting up multilib"
+{
+  echo ""
+  echo "[multilib]"
+  echo "Include = /etc/pacman.d/mirrorlist"
+} >> /etc/pacman.conf
+
 # Update system and install dependencies
 echo "  → Installing base packages"
 pacman -Syu --noconfirm
