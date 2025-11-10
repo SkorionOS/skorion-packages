@@ -460,12 +460,6 @@ jobs:
               curl -sL "$url" -o "output/$filename"
             done
             
-            # 下载 packages.json（用于版本检测）
-            packages_json_url=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name == "packages.json") | .browser_download_url')
-            if [ -n "$packages_json_url" ] && [ "$packages_json_url" != "null" ]; then
-              echo "  下载 packages.json"
-              curl -sL "$packages_json_url" -o "output/packages.json.old" || true
-            fi
           fi
           
           echo "==> 当前文件列表:"
@@ -545,7 +539,6 @@ jobs:
             output/*.pkg.tar.zst
             output/*.db*
             output/*.files*
-            output/packages.json
           retention-days: 7
 
   # ===========================================================================
@@ -754,7 +747,6 @@ jobs:
             output/*.files.tar.gz
             output/*.db
             output/*.files
-            output/packages.json
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -827,15 +819,18 @@ jobs:
           name: repository
           path: output/
       
-      - name: Download from latest release (incremental mode)
+      - name: Get package count from latest release (incremental mode)
         if: steps.mode.outputs.mode == 'incremental'
         run: |
-          echo "==> 增量模式：从 latest release 下载元数据"
+          echo "==> 增量模式：从 latest release 统计包数量"
           mkdir -p output
           
-          # 只下载 packages.json 用于统计
-          curl -sL "https://github.com/${{ github.repository }}/releases/download/latest/packages.json" \
-            -o output/packages.json || echo "{}" > output/packages.json
+          # 从 release assets 统计包数量
+          pkg_count=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
+            jq '[.assets[] | select(.name | endswith(".pkg.tar.zst"))] | length')
+          
+          echo "$pkg_count" > /tmp/pkg_count.txt
+          echo "==> 仓库总包数: $pkg_count"
       
       - name: Generate release info
         id: release-info
@@ -843,12 +838,13 @@ jobs:
           echo "date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
           echo "datetime=$(date +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
           
-          # 从 packages.json 读取仓库总包数（包含所有包）
-          if [ -f output/packages.json ]; then
-            pkg_count=$(jq '.total_packages' output/packages.json)
-          else
-            # fallback: 统计目录中的包文件（仅用于异常情况）
+          # 统计包数量
+          if [ "${{ steps.mode.outputs.mode }}" = "snapshot" ]; then
+            # 快照模式：统计 output 目录中的包
             pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          else
+            # 增量模式：从之前统计的结果读取
+            pkg_count=$(cat /tmp/pkg_count.txt 2>/dev/null || echo "0")
           fi
           echo "package_count=$pkg_count" >> $GITHUB_OUTPUT
           

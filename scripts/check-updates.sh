@@ -76,87 +76,73 @@ if [ -n "$FORCE_REBUILD" ]; then
 fi
 export FORCE_REBUILD_LIST
 
-# 下载 latest Release 的 packages.json
+# 下载 latest Release 的包文件列表（从 assets）
 echo "==> 下载 latest Release 信息"
 LATEST_JSON=$(curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" || echo "{}")
 
-# 检查是否存在 latest release
+# 检查是否是首次构建
 FIRST_BUILD=false
 if echo "$LATEST_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
-    echo "==> 首次构建，没有 latest Release"
+    echo "==> 首次构建（未找到 latest Release）"
     FIRST_BUILD=true
 fi
 
-# 下载 packages.json
-if [ "$FIRST_BUILD" = false ]; then
-    # 安全地检查 assets 是否存在
-    if echo "$LATEST_JSON" | jq -e '.assets' > /dev/null 2>&1; then
-        PACKAGES_JSON_URL=$(echo "$LATEST_JSON" | jq -r '.assets[]? | select(.name == "packages.json") | .browser_download_url' 2>/dev/null | head -1)
-    else
-        PACKAGES_JSON_URL=""
-    fi
-    
-    if [ -z "$PACKAGES_JSON_URL" ] || [ "$PACKAGES_JSON_URL" = "null" ]; then
-        echo "==> 警告: 未找到 packages.json"
-        FIRST_BUILD=true
-    fi
-fi
-
-# 解析旧版本
+# 从 Release Assets 获取已发布的包版本
 declare -A OLD_VERSIONS
 
 if [ "$FIRST_BUILD" = false ]; then
-    echo "==> 下载 packages.json: $PACKAGES_JSON_URL"
-    curl -sL "$PACKAGES_JSON_URL" -o old-packages.json
+    echo "==> 从 Release Assets 解析包版本"
     
-    # 创建旧版本映射
-    echo "==> 分析旧版本"
+    # 获取所有 .pkg.tar.zst 文件名
+    ASSET_PACKAGES=$(echo "$LATEST_JSON" | jq -r '.assets[]? | select(.name | endswith(".pkg.tar.zst")) | .name' 2>/dev/null || echo "")
     
-    while IFS= read -r pkg_full; do
-        # 格式: packagename-[epoch-]pkgver-pkgrel-arch
-        # 注意: epoch 中的 : 在文件名中被替换为 -，例如 5: 变成 5-
-        # 所以 linuxqq-5:3.2.21-1 会变成 linuxqq-5--3.2.21-1（双连字符）
-        
-        # 去掉扩展名（如果有）
-        pkg_full="${pkg_full%.pkg.tar.*}"
-        
-        # 从右往左匹配: 最后一个 - 后面是 arch
-        if [[ "$pkg_full" =~ ^(.+)-([^-]+)$ ]]; then
-            pkg_without_arch="${BASH_REMATCH[1]}"
+    if [ -z "$ASSET_PACKAGES" ]; then
+        echo "==> 警告: Release 中没有包文件"
+        FIRST_BUILD=true
+    else
+        # 解析每个包文件名，提取包名和版本
+        while IFS= read -r filename; do
+            if [ -z "$filename" ]; then
+                continue
+            fi
             
-            # 再匹配一次: 最后一个 - 后面是 pkgrel
-            if [[ "$pkg_without_arch" =~ ^(.+)-([0-9]+)$ ]]; then
-                pkg_with_ver="${BASH_REMATCH[1]}"
-                pkgrel="${BASH_REMATCH[2]}"
+            # 移除 .pkg.tar.zst 后缀
+            pkg_full="${filename%.pkg.tar.zst}"
+            
+            # 解析格式: pkgname-pkgver-pkgrel-arch
+            # 支持 epoch，文件名中 epoch 用 -- 表示（因为文件系统不允许 :）
+            # 例如: mesa-1--25.2.6-1-x86_64 表示 mesa 1:25.2.6-1
+            
+            # 从右往左提取：arch, pkgrel, pkgver, pkgname
+            if [[ "$pkg_full" =~ ^(.+)-([^-]+)-([^-]+)-([^-]+)$ ]]; then
+                pkg_base="${BASH_REMATCH[1]}"
+                pkgver="${BASH_REMATCH[2]}"
+                pkgrel="${BASH_REMATCH[3]}"
+                arch="${BASH_REMATCH[4]}"
                 
-                # 再匹配一次: 最后一个 - 后面是 pkgver
-                # 但要特殊处理 epoch，格式是 数字--版本
-                if [[ "$pkg_with_ver" =~ ^(.+)-([0-9]+)--(.+)$ ]]; then
-                    # 有 epoch 的情况: packagename-epoch--pkgver
+                # 处理 epoch（-- 转回 :）
+                if [[ "$pkg_base" =~ ^(.+)--([0-9]+)$ ]]; then
                     pkg_name="${BASH_REMATCH[1]}"
                     epoch="${BASH_REMATCH[2]}"
-                    base_ver="${BASH_REMATCH[3]}"
-                    # 将 epoch- 转换回 epoch:
-                    pkgver="${epoch}:${base_ver}"
-                    pkg_ver="${pkgver}-${pkgrel}"
-                    # 直接覆盖（packages.json 中后出现的就是更新的）
-                    OLD_VERSIONS[$pkg_name]="$pkg_ver"
-                elif [[ "$pkg_with_ver" =~ ^(.+)-(.+)$ ]]; then
-                    # 无 epoch 的情况
-                    pkg_name="${BASH_REMATCH[1]}"
-                    pkgver="${BASH_REMATCH[2]}"
-                    pkg_ver="${pkgver}-${pkgrel}"
-                    # 直接覆盖（packages.json 中后出现的就是更新的）
-                    OLD_VERSIONS[$pkg_name]="$pkg_ver"
+                    full_ver="${epoch}:${pkgver}-${pkgrel}"
+                else
+                    pkg_name="$pkg_base"
+                    full_ver="${pkgver}-${pkgrel}"
                 fi
+                
+                # 存储版本（如果有重复包名，保留最后一个）
+                OLD_VERSIONS[$pkg_name]="$full_ver"
             fi
+        done <<< "$ASSET_PACKAGES"
+        
+        # 输出解析结果
+        echo "==> 已解析 ${#OLD_VERSIONS[@]} 个包的版本"
+        if [ "${LOG_LEVEL:-INFO}" = "DEBUG" ]; then
+            for pkg_name in "${!OLD_VERSIONS[@]}"; do
+                echo "  旧: $pkg_name = ${OLD_VERSIONS[$pkg_name]}"
+            done | sort
         fi
-    done < <(jq -r '.packages[]' old-packages.json)
-    
-    # 输出最终的旧版本列表
-    for pkg_name in "${!OLD_VERSIONS[@]}"; do
-        echo "  旧: $pkg_name = ${OLD_VERSIONS[$pkg_name]}"
-    done | sort
+    fi
 fi
 
 # ==============================================================================

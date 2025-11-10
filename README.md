@@ -88,7 +88,8 @@ Server = https://github.com/SkorionOS/skorion-packages/releases/download/2024.11
 ### CI/CD 流程
 
 1. **检测更新**：
-   - 下载 `latest` Release 的 `packages.json`
+   - 获取 `latest` Release 的所有包文件列表
+   - 从包文件名解析版本信息
    - 对比每个 AUR 包的版本（通过 AUR RPC）
    - 生成待构建包列表
 

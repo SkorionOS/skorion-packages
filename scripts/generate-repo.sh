@@ -46,68 +46,7 @@ ln -sf "${REPO_NAME}.files.tar.gz" "${REPO_NAME}.files"
 echo "==> 仓库数据库生成完成"
 ls -lh "${REPO_NAME}.db"* "${REPO_NAME}.files"*
 
-# 生成包列表 JSON（从数据库中提取完整列表）
-echo "==> 生成包列表元数据"
-
-# 从数据库中提取所有包信息
-TEMP_DIR=$(mktemp -d)
-tar -xzf "${REPO_NAME}.db.tar.gz" -C "$TEMP_DIR"
-
-# 收集所有包的完整文件名
-declare -a PACKAGES
-for desc_file in "$TEMP_DIR"/*/desc; do
-    if [ -f "$desc_file" ]; then
-        # 从 desc 文件中提取包的完整名称
-        pkg_name=""
-        pkg_version=""
-        pkg_arch=""
-        
-        while IFS= read -r line; do
-            if [ "$line" = "%NAME%" ]; then
-                read -r pkg_name
-            elif [ "$line" = "%VERSION%" ]; then
-                read -r pkg_version
-            elif [ "$line" = "%ARCH%" ]; then
-                read -r pkg_arch
-            fi
-        done < "$desc_file"
-        
-        if [ -n "$pkg_name" ] && [ -n "$pkg_version" ] && [ -n "$pkg_arch" ]; then
-            # 构建完整的包文件名（不含扩展名）
-            PACKAGES+=("${pkg_name}-${pkg_version}-${pkg_arch}")
-        fi
-    fi
-done
-
-rm -rf "$TEMP_DIR"
-
-# 生成 JSON
-TOTAL_PACKAGES=${#PACKAGES[@]}
-echo "==> 数据库中共有 $TOTAL_PACKAGES 个包"
-
-cat > packages.json <<EOF
-{
-  "build_date": "$(date -Iseconds)",
-  "repository": "${REPO_NAME}",
-  "total_packages": ${TOTAL_PACKAGES},
-  "packages": [
-EOF
-
-first=true
-for pkg in "${PACKAGES[@]}"; do
-    if [ "$first" = true ]; then
-        first=false
-    else
-        echo "," >> packages.json
-    fi
-    echo -n "    \"$pkg\"" >> packages.json
-done
-
-echo "" >> packages.json
-echo "  ]" >> packages.json
-echo "}" >> packages.json
-
 echo "==> 完成！"
-echo "==> 包数量: $TOTAL_PACKAGES"
+echo "==> 包数量: $PACKAGE_COUNT"
 echo "==> 输出目录: $OUTPUT_DIR"
 
