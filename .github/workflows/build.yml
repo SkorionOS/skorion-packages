@@ -680,7 +680,8 @@ jobs:
                 fi
               done < "$desc_file"
               if [ -n "$pkg_name" ] && [ -n "$pkg_version" ] && [ -n "$pkg_arch" ]; then
-                echo "${pkg_name}-${pkg_version}-${pkg_arch}.pkg.tar.zst"
+                # 转换 epoch 格式: version:x -> version--x (文件系统命名规则)
+                echo "${pkg_name}-${pkg_version/:/--}-${pkg_arch}.pkg.tar.zst"
               fi
             fi
           done | sort)
