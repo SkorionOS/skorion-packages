@@ -168,13 +168,13 @@ echo "==> 检查 AUR 包"
 
 if [ "$FIRST_BUILD" = true ]; then
     echo "==> 首次构建，构建所有 AUR 包"
-    grep -v '^#' aur.txt | grep -v '^$' > "$AUR_OUTPUT_FILE"
+    grep -v '^#' aur.conf | grep -v '^$' > "$AUR_OUTPUT_FILE"
 else
     echo "==> 增量检测 AUR 包（批量+并行）"
     
     # 1. 批量获取所有包信息（一次 API 请求）
     echo "  → 批量获取 AUR 包信息"
-    pkg_list=$(grep -v '^#' aur.txt | grep -v '^$' | sed 's/^/arg[]=/g' | tr '\n' '&' | sed 's/&$//')
+    pkg_list=$(grep -v '^#' aur.conf | grep -v '^$' | sed 's/^/arg[]=/g' | tr '\n' '&' | sed 's/&$//')
     AUR_BULK_INFO=$(curl -s "https://aur.archlinux.org/rpc/v5/info?${pkg_list}")
     
     # 2. 创建临时目录
@@ -330,7 +330,7 @@ else
         local temp_dir="$2"
         
         # 跳过 pinned 包（由 pinned 逻辑单独处理）
-        if [ -f "aur-pinned.txt" ] && grep -q "^${pkg_name}=" "aur-pinned.txt" 2>/dev/null; then
+        if [ -f "aur-pinned.conf" ] && grep -q "^${pkg_name}=" "aur-pinned.conf" 2>/dev/null; then
             echo "  → $pkg_name: pinned 包，跳过 AUR 版本检查"
             return
         fi
@@ -457,7 +457,7 @@ else
     
     # 6. 并行检查（5 个并发，因为 makepkg --nobuild 会下载源码）
     echo "  → 并行检查包更新（5 并发）"
-    grep -v '^#' aur.txt | grep -v '^$' | \
+    grep -v '^#' aur.conf | grep -v '^$' | \
         xargs -I {} -P 5 bash -c 'check_aur_package_parallel "$@"' _ {} "$temp_dir"
     
     # 7. 收集结果
@@ -535,7 +535,7 @@ check_pinned_package() {
 }
 
 # 检查 pinned 包
-if [ -f "aur-pinned.txt" ]; then
+if [ -f "aur-pinned.conf" ]; then
     echo ""
     echo "==> 检查固定版本包"
     
@@ -556,7 +556,7 @@ if [ -f "aur-pinned.txt" ]; then
         if check_pinned_package "$pkg_name" "$git_hash" "$old_ver"; then
             echo "$pkg_name" >> "$AUR_OUTPUT_FILE"
         fi
-    done < aur-pinned.txt
+    done < aur-pinned.conf
 fi
 
 # ==============================================================================

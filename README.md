@@ -6,8 +6,8 @@
 
 ```
 skorion-packages/
-├── aur.txt                    # AUR 包列表（跟随最新版本）
-├── aur-pinned.txt             # 固定版本的 AUR 包
+├── aur.conf                   # AUR 包列表（跟随最新版本）
+├── aur-pinned.conf            # 固定版本的 AUR 包
 ├── local/                     # 本地包的 PKGBUILD（每个包一个目录）
 ├── scripts/
 │   ├── build-single-package.sh  # 构建单个包（供 CI matrix 使用）
@@ -50,11 +50,11 @@ Server = https://github.com/SkorionOS/skorion-packages/releases/download/2024.11
 ### 版本控制策略
 
 **默认跟随上游**：
-- `aur.txt` 中的包默认使用 AUR 最新版本
+- `aur.conf` 中的包默认使用 AUR 最新版本
 - 简单、自动，适合大部分包
 
 **选择性固定**：
-- `aur-pinned.txt` 中的包固定到特定 git commit
+- `aur-pinned.conf` 中的包固定到特定 git commit
 - 适用于需要稳定性的包或有问题的上游版本
 - 格式：`包名=commit_hash`（留空表示最新）
 
@@ -115,8 +115,8 @@ Server = https://github.com/SkorionOS/skorion-packages/releases/download/2024.11
 
 **AUR 包**：
 ```bash
-# 编辑 aur.txt，添加包名
-echo "new-aur-package" >> aur.txt
+# 编辑 aur.conf，添加包名
+echo "new-aur-package" >> aur.conf
 ```
 
 **本地包**：
@@ -137,8 +137,8 @@ git clone https://aur.archlinux.org/package-name.git
 cd package-name
 git log  # 查看历史，找到合适的 commit
 
-# 2. 添加到 aur-pinned.txt
-echo "package-name=abc123def456" >> aur-pinned.txt
+# 2. 添加到 aur-pinned.conf
+echo "package-name=abc123def456" >> aur-pinned.conf
 
 # 3. 提交并推送，CI 会使用固定版本构建
 ```
@@ -146,8 +146,8 @@ echo "package-name=abc123def456" >> aur-pinned.txt
 ### 更新包
 
 **AUR 包**：
-- `aur.txt` 中的包：CI 自动使用最新版本
-- `aur-pinned.txt` 中的包：需要手动更新 commit hash
+- `aur.conf` 中的包：CI 自动使用最新版本
+- `aur-pinned.conf` 中的包：需要手动更新 commit hash
 
 **本地包**：
 - 直接编辑 `local/*/PKGBUILD`

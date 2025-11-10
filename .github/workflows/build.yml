@@ -174,7 +174,31 @@ jobs:
         include: ${{ fromJson(needs.list-packages.outputs.all-packages) }}
     
     steps:
-      - name: Free Disk Space
+      - uses: actions/checkout@v4
+      
+      - name: Check if package needs full cleanup
+        id: check-cleanup
+        run: |
+          PACKAGE="${{ matrix.package }}"
+          
+          # Read full-cleanup-packages.conf if exists
+          if [ -f "full-cleanup-packages.conf" ]; then
+            # Remove comments and empty lines, then check if package is in the list
+            if grep -v '^#' full-cleanup-packages.conf | grep -v '^[[:space:]]*$' | grep -Fxq "$PACKAGE"; then
+              echo "needs_full_cleanup=true" >> $GITHUB_OUTPUT
+              echo "✓ Package '$PACKAGE' needs full disk cleanup"
+            else
+              echo "needs_full_cleanup=false" >> $GITHUB_OUTPUT
+              echo "✓ Package '$PACKAGE' uses standard cleanup"
+            fi
+          else
+            # Default to standard cleanup if file doesn't exist
+            echo "needs_full_cleanup=false" >> $GITHUB_OUTPUT
+            echo "⚠ full-cleanup-packages.conf not found, using standard cleanup"
+          fi
+      
+      - name: Free Disk Space - standard
+        if: steps.check-cleanup.outputs.needs_full_cleanup == 'false'
         uses: endersonmenezes/free-disk-space@v3
         with:
           remove_android: true
@@ -183,8 +207,22 @@ jobs:
           rm_cmd: "rmz"  # Use 'rmz' for faster deletion (default: 'rm')
           rmz_version: "3.1.1"  # Required when rm_cmd is 'rmz'
           testing: false
-      
-      - uses: actions/checkout@v4
+
+      - name: Free Disk Space - full
+        if: steps.check-cleanup.outputs.needs_full_cleanup == 'true'
+        uses: endersonmenezes/free-disk-space@v3
+        with:
+          remove_android: true
+          remove_dotnet: true
+          remove_haskell: true
+          remove_tool_cache: true
+          remove_swap: true
+          remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+          remove_packages_one_command: true
+          remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+          rm_cmd: "rm"  # Use 'rmz' for faster deletion (default: 'rm')
+          rmz_version: "3.1.1"  # Required when rm_cmd is 'rmz'
+          testing: false
       
       - name: Setup build environment
         run: |

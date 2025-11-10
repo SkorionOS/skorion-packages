@@ -37,8 +37,8 @@ if [ "$PACKAGE_TYPE" = "aur" ]; then
     git pull || true
     
     # 检查是否需要 pin 到特定版本
-    if [ -f "$GITHUB_WORKSPACE/aur-pinned.txt" ]; then
-        PIN_COMMIT=$(grep "^${PACKAGE_NAME}=" "$GITHUB_WORKSPACE/aur-pinned.txt" | cut -d'=' -f2 || true)
+    if [ -f "$GITHUB_WORKSPACE/aur-pinned.conf" ]; then
+        PIN_COMMIT=$(grep "^${PACKAGE_NAME}=" "$GITHUB_WORKSPACE/aur-pinned.conf" | cut -d'=' -f2 || true)
         if [ -n "$PIN_COMMIT" ]; then
             echo "==> Pin 到版本: $PIN_COMMIT"
             git checkout "$PIN_COMMIT"
