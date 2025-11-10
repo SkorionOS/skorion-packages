@@ -113,21 +113,27 @@ if [ "$FIRST_BUILD" = false ]; then
             # 支持 epoch，文件名中 epoch 用 -- 表示（因为文件系统不允许 :）
             # 例如: mesa-1--25.2.6-1-x86_64 表示 mesa 1:25.2.6-1
             
-            # 从右往左提取：arch, pkgrel, pkgver, pkgname
-            if [[ "$pkg_full" =~ ^(.+)-([^-]+)-([^-]+)-([^-]+)$ ]]; then
-                pkg_base="${BASH_REMATCH[1]}"
-                pkgver="${BASH_REMATCH[2]}"
-                pkgrel="${BASH_REMATCH[3]}"
-                arch="${BASH_REMATCH[4]}"
+            # 从右往左提取 arch 和 pkgrel
+            if [[ "$pkg_full" =~ ^(.+)-([^-]+)-([^-]+)$ ]]; then
+                pkg_with_ver="${BASH_REMATCH[1]}"  # packagename-[epoch--]pkgver
+                pkgrel="${BASH_REMATCH[2]}"
+                arch="${BASH_REMATCH[3]}"
                 
-                # 处理 epoch（-- 转回 :）
-                if [[ "$pkg_base" =~ ^(.+)--([0-9]+)$ ]]; then
+                # 检查是否有 epoch（格式：packagename-epoch--pkgver）
+                if [[ "$pkg_with_ver" =~ ^(.+)-([0-9]+)--(.+)$ ]]; then
+                    # 有 epoch
                     pkg_name="${BASH_REMATCH[1]}"
                     epoch="${BASH_REMATCH[2]}"
+                    pkgver="${BASH_REMATCH[3]}"
                     full_ver="${epoch}:${pkgver}-${pkgrel}"
-                else
-                    pkg_name="$pkg_base"
+                elif [[ "$pkg_with_ver" =~ ^(.+)-(.+)$ ]]; then
+                    # 无 epoch
+                    pkg_name="${BASH_REMATCH[1]}"
+                    pkgver="${BASH_REMATCH[2]}"
                     full_ver="${pkgver}-${pkgrel}"
+                else
+                    # 无法解析，跳过
+                    continue
                 fi
                 
                 # 存储版本（如果有重复包名，保留最后一个）
