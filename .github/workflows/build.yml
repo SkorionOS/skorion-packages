@@ -404,6 +404,30 @@ jobs:
             echo "==> 🔄 增量模式：仅更新变更的包"
           fi
       
+      - name: Clean duplicate versions before snapshot
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_FULL: ${{ github.repository }}
+          OUTPUT_DIR: /tmp/empty_for_scan
+          RELEASE_TAG: latest
+        run: |
+          echo "==> 清理 latest release 中的重复版本（快照前）"
+          mkdir -p "$OUTPUT_DIR"
+          bash scripts/clean-old-assets.sh
+          
+          echo "==> 验证清理结果"
+          DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
+            jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
+            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
+          
+          if [ -n "$DUPES" ]; then
+            echo "警告：仍然存在重复的包："
+            echo "$DUPES"
+          else
+            echo "✓ 无重复版本"
+          fi
+      
       - name: Download existing data from latest release
         id: download-existing
         env:
@@ -614,11 +638,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_FULL: ${{ github.repository }}
-          OUTPUT_DIR: ./output
+          OUTPUT_DIR: /tmp/empty_for_scan
           RELEASE_TAG: latest
         run: |
           echo "==> 清理旧包版本以确保一致性检查准确"
+          # 确保使用扫描重复版本模式（OUTPUT_DIR 为空）
+          mkdir -p "$OUTPUT_DIR"
           bash scripts/clean-old-assets.sh
+          
+          echo "==> 验证清理结果"
+          DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
+            jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
+            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
+          
+          if [ -n "$DUPES" ]; then
+            echo "⚠️ 警告：仍然存在重复的包："
+            echo "$DUPES"
+            echo "这可能会导致数据库不一致"
+          else
+            echo "✓ 无重复版本"
+          fi
       
       - name: Check database consistency
         id: check-db
@@ -860,17 +899,31 @@ jobs:
           fi
           echo "new_package_count=$new_pkg_count" >> $GITHUB_OUTPUT
       
-      - name: Clean old package versions from latest release
-        if: steps.mode.outputs.mode == 'snapshot' || steps.mode.outputs.mode == 'incremental'
+      - name: Final cleanup - ensure no duplicates
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_FULL: ${{ github.repository }}
-          OUTPUT_DIR: ./output
+          OUTPUT_DIR: /tmp/empty_for_final_scan
           RELEASE_TAG: latest
         run: |
-          # Note: Incremental mode already cleaned in finalize-incremental job
-          # This is kept as a safeguard for snapshot mode and edge cases
+          echo "==> 最终清理：确保没有重复版本"
+          # 强制使用扫描重复版本模式
+          mkdir -p "$OUTPUT_DIR"
           bash scripts/clean-old-assets.sh
+          
+          echo "==> 最终验证"
+          DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
+            jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
+            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
+          
+          if [ -n "$DUPES" ]; then
+            echo "❌ 错误：发布前仍存在重复版本："
+            echo "$DUPES"
+            echo "请检查清理脚本或手动清理"
+            exit 1
+          else
+            echo "✓ 验证通过：无重复版本"
+          fi
       
       - name: Update latest release (snapshot mode)
         if: steps.mode.outputs.mode == 'snapshot'

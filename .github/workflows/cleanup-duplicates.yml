@@ -1,0 +1,115 @@
+name: Manual Cleanup Duplicates
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release 标签'
+        required: false
+        default: 'latest'
+        type: string
+      dry_run:
+        description: '仅检测不删除（Dry Run）'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  cleanup:
+    name: Clean Duplicate Packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+      
+      - name: Detect duplicate versions
+        id: detect
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_FULL: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          echo "==> 检测 $RELEASE_TAG release 中的重复版本"
+          
+          LATEST_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${REPO_FULL}/releases/tags/${RELEASE_TAG}")
+          
+          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
+            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -c | sort -rn > /tmp/package_counts.txt
+          
+          echo "==> 包统计："
+          cat /tmp/package_counts.txt
+          
+          DUPES=$(awk '$1 > 1 {print $2}' /tmp/package_counts.txt)
+          
+          if [ -z "$DUPES" ]; then
+            echo "✓ 没有发现重复版本"
+            echo "has_duplicates=false" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  发现以下包有重复版本："
+            echo "$DUPES"
+            echo "has_duplicates=true" >> $GITHUB_OUTPUT
+            
+            # 显示重复包的详细信息
+            echo ""
+            echo "==> 重复包详情："
+            for pkg in $DUPES; do
+              echo ""
+              echo "  $pkg:"
+              echo "$LATEST_JSON" | jq -r --arg pkg "$pkg" \
+                '.assets[] | select(.name | startswith($pkg + "-")) | "\(.name) | 创建: \(.created_at)"'
+            done
+          fi
+      
+      - name: Clean duplicates
+        if: steps.detect.outputs.has_duplicates == 'true' && inputs.dry_run == false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_FULL: ${{ github.repository }}
+          OUTPUT_DIR: /tmp/empty_for_cleanup
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          echo "==> 开始清理重复版本"
+          mkdir -p "$OUTPUT_DIR"
+          bash scripts/clean-old-assets.sh
+      
+      - name: Verify cleanup
+        if: steps.detect.outputs.has_duplicates == 'true' && inputs.dry_run == false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_FULL: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          echo "==> 验证清理结果"
+          sleep 2  # 等待 API 更新
+          
+          LATEST_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${REPO_FULL}/releases/tags/${RELEASE_TAG}")
+          
+          DUPES=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
+            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
+          
+          if [ -z "$DUPES" ]; then
+            echo "✅ 清理成功！没有重复版本了"
+          else
+            echo "❌ 仍然存在重复版本："
+            echo "$DUPES"
+            echo ""
+            echo "请检查清理脚本或手动删除这些重复版本"
+            exit 1
+          fi
+      
+      - name: Dry run summary
+        if: inputs.dry_run == true
+        run: |
+          echo "==> Dry Run 模式"
+          echo "检测完成，未执行任何删除操作"
+          echo "如果要执行清理，请取消勾选 'Dry Run' 选项"
+
