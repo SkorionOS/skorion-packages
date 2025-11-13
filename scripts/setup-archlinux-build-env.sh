@@ -8,29 +8,36 @@ echo "==> Setting up Arch Linux build environment"
 # Setup GPG
 echo "  → Setting up GPG"
 mkdir -p /etc/gnupg/
-echo -e "keyserver-options auto-key-retrieve" >> /etc/gnupg/gpg.conf
+echo -e "keyserver-options auto-key-retrieve" >>/etc/gnupg/gpg.conf
 
 echo "  → Setting up multilib"
 {
   echo ""
   echo "[multilib]"
   echo "Include = /etc/pacman.d/mirrorlist"
-} >> /etc/pacman.conf
+} >>/etc/pacman.conf
 
 # Update system and install dependencies
-BUILD_PACKAGES="base-devel git sudo jq curl libdisplay-info lib32-libdisplay-info"
-echo "  → Installing build packages: $BUILD_PACKAGES"
+DEPENDENCIES_PACKAGES="base-devel git sudo jq curl libdisplay-info lib32-libdisplay-info"
+
+if [ "$PACKAGE_NAME" == "lib32-mesa-git" ]; then
+  echo "  → Adding skorion repository"
+  sed -i '/^\[core\]/i [skorion]\nSigLevel = Optional TrustAll\nServer = https://github.com/SkorionOS/skorion-packages/releases/download/latest\n' /etc/pacman.conf
+  DEPENDENCIES_PACKAGES+=" mesa-git"
+fi
+
+echo "  → Installing dependencies packages: $DEPENDENCIES_PACKAGES"
 echo "  → Installing base packages"
 pacman-key --init
 pacman-key --populate archlinux
 pacman -Syu --noconfirm
-pacman -S --noconfirm $BUILD_PACKAGES
+pacman -S --noconfirm $DEPENDENCIES_PACKAGES
 pacman -Scc --noconfirm
 
 # Create builder user
 echo "  → Creating builder user"
 useradd -m -G wheel builder
-echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+echo "builder ALL=(ALL) NOPASSWD: ALL" >>/etc/sudoers
 
 # Install pikaur
 echo "  → Installing pikaur"
@@ -46,4 +53,3 @@ echo "  → Setting workspace permissions"
 chown -R builder:builder /workspace
 
 echo "✓ Build environment ready"
-
