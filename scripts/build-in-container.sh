@@ -17,7 +17,7 @@ export WORK_DIR="/tmp/build"
 export GITHUB_WORKSPACE="/workspace"
 
 # Setup build environment
-bash /workspace/scripts/setup-archlinux-build-env.sh
+bash /workspace/scripts/setup-archlinux-build-env.sh "${PACKAGE_NAME}"
 
 # Execute build as builder user
 echo "==> Building ${PACKAGE_TYPE} package: ${PACKAGE_NAME}"
