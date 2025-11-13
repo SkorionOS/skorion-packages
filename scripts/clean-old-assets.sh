@@ -11,6 +11,15 @@ REPO_FULL="${REPO_FULL}"
 OUTPUT_DIR="${OUTPUT_DIR:-./output}"
 RELEASE_TAG="${RELEASE_TAG:-latest}"
 
+# 检测版本比较工具
+if command -v vercmp &> /dev/null; then
+    VERSION_COMPARE="vercmp"
+    echo "使用 vercmp 进行版本比较"
+else
+    VERSION_COMPARE="sort"
+    echo "使用 sort -V 进行版本比较（推荐安装 pacman 以使用更准确的 vercmp）"
+fi
+
 if [ -z "$GITHUB_TOKEN" ]; then
     echo "错误: 需要设置 GITHUB_TOKEN 环境变量"
     exit 1
@@ -179,6 +188,7 @@ else
     # 对每个包名，找出最新版本并删除旧版本
     for pkg_name in "${!PACKAGE_VERSIONS[@]}"; do
         versions="${PACKAGE_VERSIONS[$pkg_name]}"
+        # shellcheck disable=SC2206
         version_array=($versions)
         
         # 如果只有一个版本，跳过
@@ -187,24 +197,71 @@ else
             continue
         fi
         
-        echo "  发现 $pkg_name 有 ${#version_array[@]} 个版本，保留最新"
+        echo "  发现 $pkg_name 有 ${#version_array[@]} 个版本，比较版本号保留最新"
         
-        # 按创建时间排序，找出最新的
-        latest_created_at=""
+        # 按版本号比较，找出最新的
+        latest_version=""
         latest_asset_id=""
         latest_asset_name=""
         
         for version_info in "${version_array[@]}"; do
             IFS=':' read -r asset_id asset_name created_at <<< "$version_info"
             
-            if [ -z "$latest_created_at" ] || [ "$created_at" \> "$latest_created_at" ]; then
-                latest_created_at="$created_at"
+            # 从文件名中提取版本号 (epoch:pkgver-pkgrel)
+            # 格式: pkgname-[epoch--]pkgver-pkgrel-arch.pkg.tar.zst
+            pkg_full="${asset_name%.pkg.tar.zst}"
+            
+            # 从右往左提取 arch 和 pkgrel
+            if [[ "$pkg_full" =~ ^(.+)-([^-]+)-([^-]+)$ ]]; then
+                pkg_with_ver="${BASH_REMATCH[1]}"
+                pkgrel="${BASH_REMATCH[2]}"
+                
+                # 检查是否有 epoch（格式：packagename-epoch--pkgver）
+                if [[ "$pkg_with_ver" =~ ^(.+)-([0-9]+)--(.+)$ ]]; then
+                    epoch="${BASH_REMATCH[2]}"
+                    pkgver="${BASH_REMATCH[3]}"
+                    current_version="${epoch}:${pkgver}-${pkgrel}"
+                elif [[ "$pkg_with_ver" =~ ^(.+)-(.+)$ ]]; then
+                    pkgver="${BASH_REMATCH[2]}"
+                    current_version="${pkgver}-${pkgrel}"
+                else
+                    echo "      警告: 无法解析版本 $asset_name，跳过"
+                    continue
+                fi
+            else
+                echo "      警告: 无法解析文件名 $asset_name，跳过"
+                continue
+            fi
+            
+            if [ -z "$latest_version" ]; then
+                # 第一个版本
+                latest_version="$current_version"
                 latest_asset_id="$asset_id"
                 latest_asset_name="$asset_name"
+            else
+                # 比较版本号
+                if [ "$VERSION_COMPARE" = "vercmp" ]; then
+                    # 使用 vercmp (pacman 的版本比较，最准确)
+                    # vercmp 返回: 1 (第一个更新), 0 (相同), -1 (第二个更新)
+                    cmp_result=$(vercmp "$current_version" "$latest_version")
+                    if [ "$cmp_result" = "1" ]; then
+                        latest_version="$current_version"
+                        latest_asset_id="$asset_id"
+                        latest_asset_name="$asset_name"
+                    fi
+                else
+                    # 使用 sort -V (通用版本号排序)
+                    newer=$(printf "%s\n%s\n" "$latest_version" "$current_version" | sort -V -r | head -1)
+                    if [ "$newer" = "$current_version" ]; then
+                        latest_version="$current_version"
+                        latest_asset_id="$asset_id"
+                        latest_asset_name="$asset_name"
+                    fi
+                fi
             fi
         done
         
-        echo "    ✓ 保留: $latest_asset_name"
+        echo "    ✓ 保留: $latest_asset_name (版本: $latest_version)"
         kept_count=$((kept_count + 1))
         
         # 删除其他版本
