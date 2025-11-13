@@ -29,51 +29,39 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y jq curl
           
-          # 尝试安装 pacman (用于更准确的版本比较)
-          echo "==> 尝试安装 vercmp..."
-          if sudo apt-get install -y pacman 2>/dev/null || sudo apt-get install -y pacman-package-manager 2>/dev/null; then
-            echo "✓ vercmp 可用"
-          else
-            echo "→ vercmp 不可用，使用 sort -V（已验证可正确处理所有版本格式）"
-          fi
+          echo "使用 sort -V 进行版本比较（已验证可正确处理所有版本格式）"
       
       - name: Detect duplicate versions
         id: detect
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_FULL: ${{ github.repository }}
+          OUTPUT_DIR: /tmp/empty_for_scan
           RELEASE_TAG: ${{ inputs.release_tag }}
+          DRY_RUN: "true"
         run: |
-          echo "==> 检测 $RELEASE_TAG release 中的重复版本"
+          mkdir -p "$OUTPUT_DIR"
           
-          LATEST_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/${REPO_FULL}/releases/tags/${RELEASE_TAG}")
+          echo "==> 运行 clean-old-assets.sh (Dry Run 模式)"
           
-          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
-            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -c | sort -rn > /tmp/package_counts.txt
+          # 捕获退出码但不立即退出
+          bash scripts/clean-old-assets.sh > /tmp/cleanup_output.txt 2>&1 || exit_code=$?
+          exit_code=${exit_code:-0}
           
-          echo "==> 包统计："
-          cat /tmp/package_counts.txt
+          echo "==> 脚本输出："
+          cat /tmp/cleanup_output.txt
           
-          DUPES=$(awk '$1 > 1 {print $2}' /tmp/package_counts.txt)
-          
-          if [ -z "$DUPES" ]; then
-            echo "✓ 没有发现重复版本"
-            echo "has_duplicates=false" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️  发现以下包有重复版本："
-            echo "$DUPES"
-            echo "has_duplicates=true" >> $GITHUB_OUTPUT
-            
-            # 显示重复包的详细信息
+          if [ $exit_code -ne 0 ]; then
             echo ""
-            echo "==> 重复包详情："
-            for pkg in $DUPES; do
-              echo ""
-              echo "  $pkg:"
-              echo "$LATEST_JSON" | jq -r --arg pkg "$pkg" \
-                '.assets[] | select(.name | startswith($pkg + "-")) | "\(.name) | 创建: \(.created_at)"'
-            done
+            echo "❌ 错误：脚本执行失败（退出码: $exit_code）"
+            exit 1
+          fi
+          
+          # 检查是否有重复版本
+          if grep -q "📦" /tmp/cleanup_output.txt; then
+            echo "has_duplicates=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_duplicates=false" >> $GITHUB_OUTPUT
           fi
       
       - name: Clean duplicates
@@ -83,8 +71,9 @@ jobs:
           REPO_FULL: ${{ github.repository }}
           OUTPUT_DIR: /tmp/empty_for_cleanup
           RELEASE_TAG: ${{ inputs.release_tag }}
+          DRY_RUN: "false"
         run: |
-          echo "==> 开始清理重复版本"
+          echo "==> 开始清理重复版本（实际删除）"
           mkdir -p "$OUTPUT_DIR"
           bash scripts/clean-old-assets.sh
       
@@ -117,7 +106,14 @@ jobs:
       - name: Dry run summary
         if: inputs.dry_run == true
         run: |
-          echo "==> Dry Run 模式"
-          echo "检测完成，未执行任何删除操作"
-          echo "如果要执行清理，请取消勾选 'Dry Run' 选项"
+          echo ""
+          echo "============================================"
+          echo "  Dry Run 模式 - 未执行任何删除操作"
+          echo "============================================"
+          echo ""
+          if [ "${{ steps.detect.outputs.has_duplicates }}" = "true" ]; then
+            echo "如需执行清理，请取消勾选 'Dry Run' 选项重新运行"
+          else
+            echo "✓ 无需清理"
+          fi
 

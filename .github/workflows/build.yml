@@ -842,16 +842,7 @@ jobs:
       
       - name: Setup version comparison tool
         run: |
-          echo "==> 尝试安装 vercmp 用于版本比较"
-          sudo apt-get update -qq
-          
-          # 尝试多种方式安装 pacman
-          if sudo apt-get install -y pacman 2>/dev/null || \
-             sudo apt-get install -y pacman-package-manager 2>/dev/null; then
-            echo "✓ vercmp 可用"
-          else
-            echo "→ vercmp 不可用，使用 sort -V（已验证可正确处理所有版本格式）"
-          fi
+          echo "使用 sort -V 进行版本比较（已验证可正确处理所有版本格式）"
       
       - name: Check release mode
         id: mode
