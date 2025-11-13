@@ -32,6 +32,10 @@ if [ "$PACKAGE_NAME" == "lib32-mesa-git" ]; then
   REMOVE_PACKAGES="mesa vulkan-intel vulkan-radeon vulkan-mesa-device-select"
 fi
 
+pacman-key --init
+pacman-key --populate archlinux
+pacman -Sy
+
 echo "  → Removing packages: $REMOVE_PACKAGES"
 for package in $REMOVE_PACKAGES; do
   echo "  → Removing package: $package"
@@ -40,9 +44,7 @@ done
 
 echo "  → Installing dependencies packages: $DEPENDENCIES_PACKAGES"
 echo "  → Installing base packages"
-pacman-key --init
-pacman-key --populate archlinux
-pacman -Syu --noconfirm
+pacman -Su --noconfirm
 pacman -S --noconfirm $DEPENDENCIES_PACKAGES
 pacman -Scc --noconfirm
 
