@@ -55,12 +55,30 @@ echo "builder ALL=(ALL) NOPASSWD: ALL" >>/etc/sudoers
 
 # Install pikaur
 echo "  → Installing pikaur"
-sudo -u builder bash -c "
-  cd /tmp
-  git clone https://aur.archlinux.org/pikaur.git
-  cd pikaur
-  makepkg -si --noconfirm
-"
+MAX_RETRIES=5
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  if sudo -u builder bash -c "
+    cd /tmp
+    rm -rf pikaur
+    git clone https://aur.archlinux.org/pikaur.git
+    cd pikaur
+    makepkg -si --noconfirm
+  "; then
+    echo "  ✓ Pikaur installed successfully"
+    break
+  else
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+      WAIT_TIME=$((2 ** RETRY_COUNT))  # Exponential backoff: 2, 4, 8, 16, 32 seconds
+      echo "  ⚠ Pikaur installation failed, retrying in ${WAIT_TIME}s ($RETRY_COUNT/$MAX_RETRIES)..."
+      sleep $WAIT_TIME
+    else
+      echo "  ✗ Failed to install pikaur after $MAX_RETRIES attempts"
+      exit 1
+    fi
+  fi
+done
 
 # Set permissions for workspace
 echo "  → Setting workspace permissions"
