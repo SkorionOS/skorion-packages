@@ -83,7 +83,29 @@ export FORCE_REBUILD_LIST
 
 # 下载 latest Release 的包文件列表（从 assets）
 echo "==> 下载 latest Release 信息"
-LATEST_JSON=$(curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" || echo "{}")
+MAX_RETRIES=5
+RETRY_COUNT=0
+LATEST_JSON=""
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+  LATEST_JSON=$(curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" 2>/dev/null)
+  
+  # 检查是否成功获取到有效的 JSON
+  if [ -n "$LATEST_JSON" ] && echo "$LATEST_JSON" | jq -e . >/dev/null 2>&1; then
+    log_success "下载 Release 信息成功"
+    break
+  else
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+      WAIT_TIME=$((2 ** RETRY_COUNT))  # Exponential backoff: 2, 4, 8, 16, 32 seconds
+      log_warn "下载 Release 信息失败，${WAIT_TIME}秒后重试 ($RETRY_COUNT/$MAX_RETRIES)..."
+      sleep $WAIT_TIME
+    else
+      log_warn "下载 Release 信息失败，达到最大重试次数 ($MAX_RETRIES)，将视为首次构建"
+      LATEST_JSON="{}"
+    fi
+  fi
+done
 
 # 检查是否是首次构建
 FIRST_BUILD=false
@@ -172,7 +194,30 @@ else
     # 1. 批量获取所有包信息（一次 API 请求）
     echo "  → 批量获取 AUR 包信息"
     pkg_list=$(grep -v '^#' aur.conf | grep -v '^$' | sed 's/^/arg[]=/g' | tr '\n' '&' | sed 's/&$//')
-    AUR_BULK_INFO=$(curl -s "https://aur.archlinux.org/rpc/v5/info?${pkg_list}")
+    
+    MAX_RETRIES=5
+    RETRY_COUNT=0
+    AUR_BULK_INFO=""
+    
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+      AUR_BULK_INFO=$(curl -s "https://aur.archlinux.org/rpc/v5/info?${pkg_list}" 2>/dev/null)
+      
+      # 检查是否成功获取到有效的 JSON
+      if [ -n "$AUR_BULK_INFO" ] && echo "$AUR_BULK_INFO" | jq -e '.results' >/dev/null 2>&1; then
+        log_info "  ✓ 批量获取 AUR 信息成功"
+        break
+      else
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+          WAIT_TIME=$((2 ** RETRY_COUNT))
+          log_warn "  ⚠ 批量获取 AUR 信息失败，${WAIT_TIME}秒后重试 ($RETRY_COUNT/$MAX_RETRIES)..."
+          sleep $WAIT_TIME
+        else
+          log_error "  ✗ 批量获取 AUR 信息失败，达到最大重试次数"
+          exit 1
+        fi
+      fi
+    done
     
     # 2. 创建临时目录
     temp_dir=$(mktemp -d)
