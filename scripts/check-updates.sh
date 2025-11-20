@@ -137,10 +137,22 @@ if [ "$FIRST_BUILD" = false ]; then
         echo "==> 警告: Release 中没有包文件"
         FIRST_BUILD=true
     else
-        # 解析每个包文件名，提取包名和版本
+        # 计数器和总数
+        pkg_count=0
+        total_assets=$(echo "$ASSET_PACKAGES" | wc -l | tr -d ' ')
+        echo "  → [$(timestamp)] 共 $total_assets 个文件需要解析..."
+        
         while IFS= read -r filename; do
             if [ -z "$filename" ]; then
                 continue
+            fi
+            
+            # 使用 +=1 避免 set -e 下 ((pkg_count++)) 在初始值为 0 时返回 1
+            ((pkg_count += 1))
+            
+            # 每 30 个包输出一次进度
+            if (( pkg_count % 30 == 0 )) || (( pkg_count == total_assets )); then
+                echo "  → [$(timestamp)] 解析进度: $pkg_count/$total_assets"
             fi
             
             # 移除 .pkg.tar.zst 后缀
@@ -203,7 +215,9 @@ if [ "$FIRST_BUILD" = false ]; then
         done <<< "$ASSET_PACKAGES"
         
         # 输出解析结果
-        echo "==> 已解析 ${#OLD_VERSIONS[@]} 个包的版本"
+        echo ""
+        echo "==> [$(timestamp)] 已解析 ${#OLD_VERSIONS[@]} 个包的版本"
+        echo ""
         
         # 显示所有包的版本列表
         for pkg_name in "${!OLD_VERSIONS[@]}"; do
@@ -291,11 +305,29 @@ else
         makepkg_err=$(mktemp)
         local makepkg_start
         makepkg_start=$(date +%s)
-        if (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null); then
-            local makepkg_end
-            makepkg_end=$(date +%s)
-            local makepkg_time=$((makepkg_end - makepkg_start))
-            echo "    [makepkg][$(timestamp)] 完成 (耗时 ${makepkg_time}s)" >&2
+        
+        # 后台执行 makepkg，同时显示心跳
+        (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null) &
+        local makepkg_pid=$!
+        
+        # 显示心跳，每 10 秒输出一次
+        local heartbeat_count=0
+        while kill -0 $makepkg_pid 2>/dev/null; do
+            sleep 10
+            ((heartbeat_count += 10))
+            echo "    [makepkg][$(timestamp)] $pkg_name: 仍在运行... (已耗时 ${heartbeat_count}s)" >&2
+        done
+        
+        # 等待 makepkg 完成并获取退出状态
+        wait $makepkg_pid
+        local makepkg_status=$?
+        
+        local makepkg_end
+        makepkg_end=$(date +%s)
+        local makepkg_time=$((makepkg_end - makepkg_start))
+        
+        if [ $makepkg_status -eq 0 ]; then
+            echo "    [makepkg][$(timestamp)] 完成 (总耗时 ${makepkg_time}s)" >&2
             rm -f "$makepkg_err"
             
             # Read new pkgver after makepkg executed pkgver()
@@ -340,7 +372,7 @@ else
             echo "$result"
             return 0
         else
-            echo "    [错误] makepkg 执行失败" >&2
+            echo "    [错误][$(timestamp)] makepkg 执行失败 (总耗时 ${makepkg_time}s)" >&2
             # 显示错误信息（只显示 ERROR 行）
             grep "^==> ERROR:" "$makepkg_err" | head -3 | sed 's/^/    /' >&2
             rm -f "$makepkg_err"
@@ -587,10 +619,19 @@ else
     echo ""
     echo "  → [$(timestamp)] 开始并行检查（$PARALLEL_JOBS 并发，共 $pkg_count 个包）"
     echo "  → 提示：包含 pkgver() 函数的包需要下载源码验证版本，会比较慢"
+    echo "  → 预计耗时：快速包 1-3s，需要下载源码的包 5-60s"
     echo "  → 下方将实时显示每个包的检查进度..."
     echo ""
+    
+    check_start=$(date +%s)
+    
     grep -v '^#' aur.conf | grep -v '^$' | \
         xargs -I {} -P "$PARALLEL_JOBS" bash -c 'check_aur_package_parallel "$@"' _ {} "$temp_dir"
+    
+    check_end=$(date +%s)
+    check_time=$((check_end - check_start))
+    echo ""
+    echo "  → [$(timestamp)] AUR 包并行检查完成 (总耗时 ${check_time}s)"
     
     # 7. 收集结果
     cat "$temp_dir"/*.build 2>/dev/null > "$AUR_OUTPUT_FILE" || true
@@ -712,6 +753,7 @@ else
     local_pkg_count=$(find local -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
     echo ""
     echo "  → [$(timestamp)] 开始检查本地包（共 $local_pkg_count 个）"
+    echo "  → 提示：本地包通常包含 pkgver() 函数，需要验证版本"
     echo ""
     
     # 创建临时目录
@@ -759,8 +801,16 @@ else
     export -f check_local_package_parallel
     
     # 并行检查（本地包数量较少）
+    local_check_start=$(date +%s)
+    
     find local -mindepth 1 -maxdepth 1 -type d -print0 | \
         xargs -0 -I {} -P "$PARALLEL_JOBS" bash -c 'check_local_package_parallel "$@"' _ {} "$temp_dir"
+    
+    local_check_end=$(date +%s)
+    local_check_time=$((local_check_end - local_check_start))
+    
+    echo ""
+    echo "  → [$(timestamp)] 本地包检查完成 (总耗时 ${local_check_time}s)"
     
     # 收集结果
     cat "$temp_dir"/*.build 2>/dev/null > "$LOCAL_OUTPUT_FILE" || true
