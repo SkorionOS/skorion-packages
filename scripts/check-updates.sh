@@ -22,9 +22,19 @@ AUR_OUTPUT_FILE="${AUR_OUTPUT_FILE:-updated-aur-packages.txt}"
 LOCAL_OUTPUT_FILE="${LOCAL_OUTPUT_FILE:-updated-local-packages.txt}"
 FORCE_REBUILD="${FORCE_REBUILD:-}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARN, ERROR
+export LOG_LEVEL  # 导出供子进程使用
 
 # 并发检查配置
 PARALLEL_JOBS="${PARALLEL_JOBS:-8}"  # 并行检查包的数量
+
+# ==============================================================================
+# 工具函数
+# ==============================================================================
+# 时间戳函数
+timestamp() {
+    date '+%H:%M:%S'
+}
+export -f timestamp
 
 # ==============================================================================
 # 日志函数
@@ -216,7 +226,8 @@ else
     echo "==> 增量检测 AUR 包（批量+并行）"
     
     # 1. 批量获取所有包信息（一次 API 请求）
-    echo "  → 批量获取 AUR 包信息"
+    pkg_count=$(grep -v '^#' aur.conf | grep -v '^$' | wc -l | tr -d ' ')
+    echo "  → [$(timestamp)] 批量获取 $pkg_count 个 AUR 包信息..."
     pkg_list=$(grep -v '^#' aur.conf | grep -v '^$' | sed 's/^/arg[]=/g' | tr '\n' '&' | sed 's/&$//')
     
     MAX_RETRIES=5
@@ -228,7 +239,7 @@ else
       
       # 检查是否成功获取到有效的 JSON
       if [ -n "$AUR_BULK_INFO" ] && echo "$AUR_BULK_INFO" | jq -e '.results' >/dev/null 2>&1; then
-        log_info "  ✓ 批量获取 AUR 信息成功"
+        log_info "  ✓ [$(timestamp)] 批量获取 AUR 信息成功"
         break
       else
         RETRY_COUNT=$((RETRY_COUNT + 1))
@@ -274,10 +285,17 @@ else
         eval "$(cd "$pkgbuild_dir" && unset epoch pkgver pkgrel && source PKGBUILD 2>/dev/null && echo "original_pkgver='$pkgver'; original_pkgrel='$pkgrel'; original_epoch='${epoch:-}'")"
         
         echo "    [makepkg] Original (expanded): pkgver=$original_pkgver, pkgrel=$original_pkgrel" >&2
-        echo "    [makepkg] 执行 makepkg --nobuild..." >&2
+        echo "    [makepkg][$(timestamp)] 开始执行 makepkg --nobuild..." >&2
+        echo "    [makepkg] 注意：如果包含 pkgver() 函数且需要下载源码，可能需要较长时间" >&2
         local makepkg_err
         makepkg_err=$(mktemp)
+        local makepkg_start
+        makepkg_start=$(date +%s)
         if (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null); then
+            local makepkg_end
+            makepkg_end=$(date +%s)
+            local makepkg_time=$((makepkg_end - makepkg_start))
+            echo "    [makepkg][$(timestamp)] 完成 (耗时 ${makepkg_time}s)" >&2
             rm -f "$makepkg_err"
             
             # Read new pkgver after makepkg executed pkgver()
@@ -404,19 +422,26 @@ else
         local git_hash="${4:-}"  # 可选：指定 commit hash
         
         # 方案1: 优先使用 git clone（更可靠）
+        log_debug "[$(timestamp)] $pkg_name: 开始 git clone PKGBUILD..."
         if git clone --depth 1 "https://aur.archlinux.org/${pkg_name}.git" "$output_dir/$pkg_name" >/dev/null 2>&1; then
+            log_debug "[$(timestamp)] $pkg_name: git clone 完成"
             # 如果指定了 commit，切换到该 commit
             if [ -n "$git_hash" ]; then
+                log_debug "[$(timestamp)] $pkg_name: 切换到指定 commit ${git_hash:0:7}..."
                 if (cd "$output_dir/$pkg_name" && git fetch --depth 50 origin "$git_hash" >/dev/null 2>&1 && git checkout "$git_hash" >/dev/null 2>&1); then
+                    log_debug "[$(timestamp)] $pkg_name: checkout 完成"
                     return 0
                 else
                     # checkout 失败，清理并 fallback
+                    log_debug "[$(timestamp)] $pkg_name: checkout 失败，清理..."
                     rm -rf "${output_dir:?}/${pkg_name:?}"
                     return 1
                 fi
             fi
             return 0
         fi
+        
+        log_debug "[$(timestamp)] $pkg_name: git clone 失败，尝试 snapshot..."
         
         # 如果指定了 git_hash，不使用 snapshot fallback（snapshot 不支持指定 commit）
         if [ -n "$git_hash" ]; then
@@ -458,9 +483,11 @@ else
         local pkg_name="$1"
         local temp_dir="$2"
         
+        echo "[$(timestamp)] ⏳ 开始检查: $pkg_name" >&2
+        
         # 跳过 pinned 包（由 pinned 逻辑单独处理）
         if [ -f "aur-pinned.conf" ] && grep -q "^${pkg_name}=" "aur-pinned.conf" 2>/dev/null; then
-            echo "  → $pkg_name: pinned 包，跳过 AUR 版本检查"
+            echo "[$(timestamp)] → $pkg_name: pinned 包，跳过 AUR 版本检查" >&2
             return
         fi
         
@@ -550,12 +577,18 @@ else
         # 使用统一的版本检测函数
         check_package_version "$pkgbuild_dir" "$pkg_name" "$temp_dir"
         rm -rf "$tmpdir"
+        
+        echo "[$(timestamp)] ✓ 完成检查: $pkg_name" >&2
     }
     
     export -f check_aur_package_parallel
     
     # 6. 并行检查（因为 makepkg --nobuild 会下载源码）
-    echo "  → 并行检查包更新（$PARALLEL_JOBS 并发）"
+    echo ""
+    echo "  → [$(timestamp)] 开始并行检查（$PARALLEL_JOBS 并发，共 $pkg_count 个包）"
+    echo "  → 提示：包含 pkgver() 函数的包需要下载源码验证版本，会比较慢"
+    echo "  → 下方将实时显示每个包的检查进度..."
+    echo ""
     grep -v '^#' aur.conf | grep -v '^$' | \
         xargs -I {} -P "$PARALLEL_JOBS" bash -c 'check_aur_package_parallel "$@"' _ {} "$temp_dir"
     
@@ -676,6 +709,11 @@ elif [ "$FIRST_BUILD" = true ]; then
 else
     echo "==> 增量检测本地包（并行）"
     
+    local_pkg_count=$(find local -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+    echo ""
+    echo "  → [$(timestamp)] 开始检查本地包（共 $local_pkg_count 个）"
+    echo ""
+    
     # 创建临时目录
     temp_dir=$(mktemp -d)
     
@@ -695,6 +733,8 @@ else
             return
         fi
         
+        echo "[$(timestamp)] ⏳ 检查本地包: $pkg_name" >&2
+        
         # 检查是否在强制重建列表中
         log_debug "  [force-check] Checking if $pkg_name is in force rebuild list: $FORCE_REBUILD_LIST"
         if [ -f "$FORCE_REBUILD_LIST" ] && [ -s "$FORCE_REBUILD_LIST" ]; then
@@ -712,6 +752,8 @@ else
         
         # 使用统一的版本检测函数
         check_package_version "$pkg_dir" "$pkg_name" "$temp_dir"
+        
+        echo "[$(timestamp)] ✓ 完成本地包: $pkg_name" >&2
     }
     
     export -f check_local_package_parallel
@@ -733,9 +775,17 @@ LOCAL_COUNT=$(wc -l < "$LOCAL_OUTPUT_FILE" | tr -d ' ')
 
 echo ""
 echo "========================================"
-echo "==> 检测完成"
+echo "==> [$(timestamp)] 检测完成"
 echo "==> AUR 包: $AUR_COUNT 个需要构建"
+if [ "$AUR_COUNT" -gt 0 ]; then
+    echo "    构建列表:"
+    cat "$AUR_OUTPUT_FILE" | sed 's/^/      - /'
+fi
 echo "==> 本地包: $LOCAL_COUNT 个需要构建"
+if [ "$LOCAL_COUNT" -gt 0 ]; then
+    echo "    构建列表:"
+    cat "$LOCAL_OUTPUT_FILE" | sed 's/^/      - /'
+fi
 echo "========================================"
 
 # 清理临时文件
