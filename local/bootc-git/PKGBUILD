@@ -49,9 +49,6 @@ package() {
   # Includes: binaries, systemd units, man pages, config files, etc.
   make install DESTDIR="${pkgdir}" prefix=/usr
   
-  # Install initramfs support and dracut module (critical for bootc to work!)
-  make install-initramfs-dracut DESTDIR="${pkgdir}"
-  
   # Install ostree integration hooks (optional but recommended)
   make install-ostree-hooks DESTDIR="${pkgdir}" prefix=/usr
 }
