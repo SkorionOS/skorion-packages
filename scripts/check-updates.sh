@@ -163,8 +163,32 @@ if [ "$FIRST_BUILD" = false ]; then
                     continue
                 fi
                 
-                # 存储版本（如果有重复包名，保留最后一个）
-                OLD_VERSIONS[$pkg_name]="$full_ver"
+                # 存储版本（如果有重复包名，比较版本号保留最新的）
+                if [ -n "${OLD_VERSIONS[$pkg_name]:-}" ]; then
+                    # 已经有这个包了，比较版本号
+                    old_ver="${OLD_VERSIONS[$pkg_name]}"
+                    
+                    # 使用 vercmp 或 sort -V 比较版本
+                    if command -v vercmp > /dev/null 2>&1; then
+                        # 使用 pacman 的 vercmp（最准确）
+                        cmp_result=$(vercmp "$full_ver" "$old_ver")
+                        if [ "$cmp_result" = "1" ]; then
+                            # 新版本更新
+                            OLD_VERSIONS[$pkg_name]="$full_ver"
+                            echo "  ⚠ 检测到 $pkg_name 有多个版本，保留较新的: $full_ver (vs $old_ver)"
+                        fi
+                    else
+                        # fallback 到 sort -V
+                        newer=$(printf "%s\n%s\n" "$old_ver" "$full_ver" | sort -V -r | head -1)
+                        if [ "$newer" = "$full_ver" ]; then
+                            OLD_VERSIONS[$pkg_name]="$full_ver"
+                            echo "  ⚠ 检测到 $pkg_name 有多个版本，保留较新的: $full_ver (vs $old_ver)"
+                        fi
+                    fi
+                else
+                    # 首次遇到这个包
+                    OLD_VERSIONS[$pkg_name]="$full_ver"
+                fi
             fi
         done <<< "$ASSET_PACKAGES"
         
