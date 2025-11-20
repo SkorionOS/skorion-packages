@@ -189,6 +189,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      # 恢复构建缓存（与检测阶段共享）
+      - name: Restore makepkg sources cache for building
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/makepkg-cache
+          key: version-check-sources-${{ hashFiles('aur.conf', 'aur-pinned.conf') }}
+          restore-keys: |
+            version-check-sources-
+      
+      # 确保缓存目录存在
+      - name: Setup cache directory
+        run: |
+          mkdir -p /tmp/makepkg-cache
+          chmod 777 /tmp/makepkg-cache
+      
       - name: Check if package needs full cleanup
         id: check-cleanup
         run: |
@@ -255,6 +270,8 @@ jobs:
           
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/workspace" \
+            -v "/tmp/makepkg-cache:/tmp/makepkg-cache" \
+            -e SRCDEST=/tmp/makepkg-cache \
             -w /workspace \
             archlinux:latest \
             bash /workspace/scripts/build-in-container.sh "${{ matrix.package }}" "${{ matrix.type }}"

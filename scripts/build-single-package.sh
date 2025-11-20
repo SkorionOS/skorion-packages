@@ -47,8 +47,14 @@ if [ "$PACKAGE_TYPE" = "aur" ]; then
     
     # 使用 pikaur 构建（自动处理依赖）
     echo "==> 使用 pikaur 构建 $PACKAGE_NAME"
-    PKGDEST="$OUTPUT_DIR" MAKEFLAGS="-j$(nproc)" \
-        pikaur --noconfirm -S -P PKGBUILD
+    if [ -n "${SRCDEST:-}" ]; then
+        echo "==> 源码将缓存到: $SRCDEST"
+        PKGDEST="$OUTPUT_DIR" SRCDEST="$SRCDEST" MAKEFLAGS="-j$(nproc)" \
+            pikaur --noconfirm -S -P PKGBUILD
+    else
+        PKGDEST="$OUTPUT_DIR" MAKEFLAGS="-j$(nproc)" \
+            pikaur --noconfirm -S -P PKGBUILD
+    fi
     
 # =============================================================================
 # 构建本地包
@@ -65,8 +71,14 @@ elif [ "$PACKAGE_TYPE" = "local" ]; then
     
     # 本地包也使用 pikaur（自动处理依赖，包括 AUR）
     echo "==> 使用 pikaur 构建本地包: $PACKAGE_NAME"
-    PKGDEST="$OUTPUT_DIR" MAKEFLAGS="-j$(nproc)" \
-        pikaur --noconfirm -S -P PKGBUILD
+    if [ -n "${SRCDEST:-}" ]; then
+        echo "==> 源码将缓存到: $SRCDEST"
+        PKGDEST="$OUTPUT_DIR" SRCDEST="$SRCDEST" MAKEFLAGS="-j$(nproc)" \
+            pikaur --noconfirm -S -P PKGBUILD
+    else
+        PKGDEST="$OUTPUT_DIR" MAKEFLAGS="-j$(nproc)" \
+            pikaur --noconfirm -S -P PKGBUILD
+    fi
 else
     echo "==> 错误: 未知的包类型: $PACKAGE_TYPE"
     exit 1
