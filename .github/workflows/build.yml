@@ -404,7 +404,8 @@ jobs:
             echo "==> 🔄 增量模式：仅更新变更的包"
           fi
       
-      - name: Clean duplicate versions before snapshot
+      # 步骤1：清理 release 中已存在的重复版本（扫描模式）
+      - name: Step 1 - Clean duplicates in release (scan mode)
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -412,20 +413,43 @@ jobs:
           OUTPUT_DIR: /tmp/empty_for_scan
           RELEASE_TAG: latest
         run: |
-          echo "==> 清理 latest release 中的重复版本（快照前）"
+          echo "==> 步骤1: 清理 release 中已有的重复版本（扫描模式）"
+          echo "    此步骤确保 release 自身没有重复包"
           mkdir -p "$OUTPUT_DIR"
           bash scripts/clean-old-assets.sh
-          
+      
+      # 步骤2：清理与本次构建冲突的旧版本（本地包模式）
+      - name: Step 2 - Clean old versions conflicting with new builds (local mode)
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_FULL: ${{ github.repository }}
+          OUTPUT_DIR: ./output
+          RELEASE_TAG: latest
+        run: |
+          echo "==> 步骤2: 清理 release 中与本次新构建冲突的旧版本（基于本地包模式）"
+          echo "    此步骤删除 release 中所有与本次新构建包名相同的旧版本"
+          bash scripts/clean-old-assets.sh
+      
+      # 验证最终结果
+      - name: Verify no duplicates remain in release
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
+        run: |
           echo "==> 验证清理结果"
           DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
             jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
             sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
           
           if [ -n "$DUPES" ]; then
-            echo "警告：仍然存在重复的包："
+            echo "❌ 错误：仍然存在重复的包："
             echo "$DUPES"
+            echo ""
+            echo "这不应该发生。可能的原因："
+            echo "  1. 清理脚本执行失败"
+            echo "  2. 在清理期间有其他任务上传了包"
+            exit 1
           else
-            echo "✓ 无重复版本"
+            echo "✓ 验证通过：release 中无重复版本"
           fi
       
       - name: Download existing data from latest release
