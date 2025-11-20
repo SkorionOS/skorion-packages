@@ -300,7 +300,7 @@ else
         
         echo "    [makepkg] Original (expanded): pkgver=$original_pkgver, pkgrel=$original_pkgrel" >&2
         echo "    [makepkg][$(timestamp)] 开始执行 makepkg --nobuild..." >&2
-        echo "    [makepkg] 注意：如果包含 pkgver() 函数且需要下载源码，可能需要较长时间" >&2
+        # echo "    [makepkg] 注意：如果包含 pkgver() 函数且需要下载源码，可能需要较长时间" >&2
         local makepkg_err
         makepkg_err=$(mktemp)
         local makepkg_start

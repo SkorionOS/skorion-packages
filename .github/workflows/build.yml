@@ -50,6 +50,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      # 缓存 makepkg 源码目录，加速版本检测（特别是 mesa-git 等大型仓库）
+      - name: Cache makepkg sources for version detection
+        uses: actions/cache@v4
+        with:
+          path: /tmp/makepkg-cache
+          key: version-check-sources-${{ hashFiles('aur.conf', 'aur-pinned.conf') }}
+          restore-keys: |
+            version-check-sources-
+      
       - name: Install dependencies
         run: |
           pacman -Syu --noconfirm
@@ -102,6 +111,10 @@ jobs:
           
           # 给予工作目录权限
           chown -R builder:builder $GITHUB_WORKSPACE
+          
+          # 设置 makepkg 源码缓存目录权限
+          mkdir -p /tmp/makepkg-cache
+          chown -R builder:builder /tmp/makepkg-cache
       
       - name: Check package updates
         id: check-updates
@@ -110,6 +123,7 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
           FORCE_REBUILD: ${{ github.event.inputs.force_rebuild || '' }}
           LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
+          SRCDEST: /tmp/makepkg-cache
         run: |
           # 以 builder 用户运行检查脚本，保留环境变量
           sudo -u builder \
@@ -117,6 +131,7 @@ jobs:
             REPO_NAME="$REPO_NAME" \
             FORCE_REBUILD="$FORCE_REBUILD" \
             LOG_LEVEL="$LOG_LEVEL" \
+            SRCDEST="$SRCDEST" \
             bash scripts/check-updates.sh
       
       - name: List AUR packages to build
