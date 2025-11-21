@@ -36,6 +36,15 @@ timestamp() {
 }
 export -f timestamp
 
+# 版本号标准化函数 - 将 git hash 统一截断为 7 位，避免长度波动导致误判
+normalize_version_for_comparison() {
+    local version="$1"
+    # 将版本号中 8-12 位的十六进制字符串截断为 7 位
+    # 例如: 7c193ffef1a8 -> 7c193ff
+    echo "$version" | sed -E 's/\b([0-9a-f]{7})[0-9a-f]{1,5}\b/\1/g'
+}
+export -f normalize_version_for_comparison
+
 # ==============================================================================
 # 日志函数
 # ==============================================================================
@@ -435,8 +444,17 @@ else
             echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
             echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
         elif [ "$current_ver" != "$old_ver" ]; then
-            echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
-            echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            # 智能比对：检查是否只是 git hash 长度差异
+            local old_normalized new_normalized
+            old_normalized=$(normalize_version_for_comparison "$old_ver")
+            new_normalized=$(normalize_version_for_comparison "$current_ver")
+            
+            if [ "$old_normalized" = "$new_normalized" ]; then
+                echo "  → $pkg_name: 版本未变化 ($current_ver，已忽略 git hash 长度差异)"
+            else
+                echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
+                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+            fi
         else
             echo "  → $pkg_name: 版本未变化 ($current_ver)"
         fi
@@ -554,8 +572,17 @@ else
                 echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
                 echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
             elif [ "$current_ver" != "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                # 智能比对：检查是否只是 git hash 长度差异
+                local old_normalized new_normalized
+                old_normalized=$(normalize_version_for_comparison "$old_ver")
+                new_normalized=$(normalize_version_for_comparison "$current_ver")
+                
+                if [ "$old_normalized" = "$new_normalized" ]; then
+                    echo "  → $pkg_name: 版本未变化 ($current_ver，已忽略 git hash 长度差异)"
+                else
+                    echo "  ✓ $pkg_name: 版本变化 $old_ver → $current_ver，需要构建"
+                    echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                fi
             else
                 echo "  → $pkg_name: 版本未变化 ($current_ver)"
             fi
@@ -576,8 +603,17 @@ else
                 echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
                 echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
             elif [ "$current_ver" != "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 版本变化（下载失败，使用 AUR 版本）$old_ver → $current_ver，需要构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                # 智能比对：检查是否只是 git hash 长度差异
+                local old_normalized new_normalized
+                old_normalized=$(normalize_version_for_comparison "$old_ver")
+                new_normalized=$(normalize_version_for_comparison "$current_ver")
+                
+                if [ "$old_normalized" = "$new_normalized" ]; then
+                    echo "  → $pkg_name: 版本未变化 ($current_ver，已忽略 git hash 长度差异)"
+                else
+                    echo "  ✓ $pkg_name: 版本变化（下载失败，使用 AUR 版本）$old_ver → $current_ver，需要构建"
+                    echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                fi
             else
                 echo "  → $pkg_name: 版本未变化 ($current_ver)"
             fi
@@ -598,8 +634,17 @@ else
                 echo "  ✓ $pkg_name: 新包 ($current_ver)，需要构建"
                 echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
             elif [ "$current_ver" != "$old_ver" ]; then
-                echo "  ✓ $pkg_name: 版本变化（未找到 PKGBUILD）$old_ver → $current_ver，需要构建"
-                echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                # 智能比对：检查是否只是 git hash 长度差异
+                local old_normalized new_normalized
+                old_normalized=$(normalize_version_for_comparison "$old_ver")
+                new_normalized=$(normalize_version_for_comparison "$current_ver")
+                
+                if [ "$old_normalized" = "$new_normalized" ]; then
+                    echo "  → $pkg_name: 版本未变化 ($current_ver，已忽略 git hash 长度差异)"
+                else
+                    echo "  ✓ $pkg_name: 版本变化（未找到 PKGBUILD）$old_ver → $current_ver，需要构建"
+                    echo "$pkg_name" > "$temp_dir/${pkg_name}.build"
+                fi
             else
                 echo "  → $pkg_name: 版本未变化 ($current_ver)"
             fi
