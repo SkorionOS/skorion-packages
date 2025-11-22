@@ -156,6 +156,9 @@ if [ "$FIRST_BUILD" = false ]; then
                 continue
             fi
             
+            # URL 解码文件名（%2B -> +, %20 -> 空格等）
+            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))" <<< "$filename")
+            
             # 使用 +=1 避免 set -e 下 ((pkg_count++)) 在初始值为 0 时返回 1
             ((pkg_count += 1))
             

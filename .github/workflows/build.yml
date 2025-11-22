@@ -521,6 +521,8 @@ jobs:
             echo "==> 快照模式：下载所有包文件"
             echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
               filename=$(basename "$url")
+              # URL 解码文件名
+              filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
               
               # 跳过已存在的包（新构建优先）
               if [ -f "output/$filename" ]; then
@@ -536,6 +538,8 @@ jobs:
             echo "==> 增量模式：只下载数据库文件"
             echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | test("\\.(db|files)")) | .browser_download_url' | while read url; do
               filename=$(basename "$url")
+              # URL 解码文件名
+              filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
               echo "  下载 $filename"
               curl -sL "$url" -o "output/$filename"
             done
@@ -816,6 +820,8 @@ jobs:
           mkdir -p output
           echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
             filename=$(basename "$url")
+            # URL 解码文件名
+            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
             echo "  下载 $filename"
             curl -sL "$url" -o "output/$filename" || echo "    下载失败"
           done
