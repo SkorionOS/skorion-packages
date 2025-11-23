@@ -2,7 +2,7 @@
 
 _pkgname=MangoHud
 pkgname=mangohud-git
-pkgver=0.8.1.r127.g20700b4
+pkgver=0.8.2.r15.gf60524b
 pkgrel=1
 pkgdesc="A Vulkan overlay layer for monitoring FPS, temperatures, CPU/GPU load and more"
 url='https://github.com/flightlessmango/MangoHud'
@@ -44,7 +44,7 @@ optdepends=(
 provides=('mangohud' 'mangoapp')
 replaces=('mangoapp')
 conflicts=('mangohud' 'mangohud-common-git' 'mangoapp')
-_commit=20700b433adbb1f77f3a52ffe329c70e22d37967
+_commit=f60524b9d31261f6ffdc57cd27687f3b76d64301
 source=(
     "$_pkgname::git+$url#commit=$_commit"
     0001-feat-display-battery-charging-power.patch
