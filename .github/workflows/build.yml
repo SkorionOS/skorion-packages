@@ -401,7 +401,7 @@ jobs:
       - name: Install dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm pacman-contrib curl jq
+          pacman -S --noconfirm pacman-contrib curl jq python
       
       - name: Download new build artifacts
         uses: actions/download-artifact@v4
