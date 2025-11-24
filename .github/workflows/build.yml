@@ -276,20 +276,10 @@ jobs:
             archlinux:latest \
             bash /workspace/scripts/build-in-container.sh "${{ matrix.package }}" "${{ matrix.type }}"
       
-      # 快照模式：上传 artifact（传统方式）
-      - name: Upload package artifact (snapshot mode)
-        if: success() && steps.mode.outputs.snapshot == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.type }}-${{ matrix.package }}
-          path: output/*.pkg.tar.zst
-          if-no-files-found: error
-          retention-days: 1
-      
-      # 增量模式：实时上传到 latest release
-      - name: Acquire database lock (incremental mode)
+      # 所有模式：实时上传到 latest release（快照模式最后会重建数据库确保一致性）
+      - name: Acquire database lock
         id: lock
-        if: success() && steps.mode.outputs.snapshot == 'false'
+        if: success()
         continue-on-error: true
         run: |
           echo "==> 尝试获取数据库锁"
@@ -321,13 +311,13 @@ jobs:
           
           if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
             echo "⚠️ 获取锁超时，将跳过数据库更新"
-            echo "包文件已上传，最终会由 finalize 任务统一更新数据库"
+            echo "包文件已上传，最终会由 finalize/snapshot 任务统一更新数据库"
             echo "locked=false" >> $GITHUB_OUTPUT
             exit 0
           fi
       
-      - name: Upload package to latest release (incremental mode)
-        if: success() && steps.mode.outputs.snapshot == 'false'
+      - name: Upload package to latest release
+        if: success()
         continue-on-error: true
         uses: softprops/action-gh-release@v1
         with:
@@ -337,8 +327,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Download and update database (incremental mode)
-        if: success() && steps.mode.outputs.snapshot == 'false' && steps.lock.outputs.locked == 'true'
+      - name: Download and update database
+        if: success() && steps.lock.outputs.locked == 'true'
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/workspace" \
@@ -346,8 +336,8 @@ jobs:
             archlinux:latest \
             bash /workspace/scripts/update-repo-database.sh "${{ github.repository }}"
       
-      - name: Upload updated database (incremental mode)
-        if: success() && steps.mode.outputs.snapshot == 'false' && steps.lock.outputs.locked == 'true'
+      - name: Upload updated database
+        if: success() && steps.lock.outputs.locked == 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
@@ -403,27 +393,6 @@ jobs:
           pacman -Syu --noconfirm
           pacman -S --noconfirm pacman-contrib curl jq python
       
-      - name: Download new build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: aur-*
-          merge-multiple: true
-          path: output/
-        continue-on-error: true
-      
-      - name: Download local package artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: local-*
-          merge-multiple: true
-          path: output/
-        continue-on-error: true
-      
-      - name: List new packages
-        run: |
-          echo "==> 新构建的包:"
-          ls -lh output/ || echo "  无新包"
-      
       - name: Check build mode
         id: check-mode
         env:
@@ -436,37 +405,20 @@ jobs:
             echo "==> 🔄 增量模式：仅更新变更的包"
           fi
       
-      # 步骤1：清理 release 中已存在的重复版本（扫描模式）
-      - name: Step 1 - Clean duplicates in release (scan mode)
+      # 快照模式：清理重复版本并下载所有包
+      - name: Clean duplicates and download all packages (snapshot mode)
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_FULL: ${{ github.repository }}
-          OUTPUT_DIR: /tmp/empty_for_scan
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
           RELEASE_TAG: latest
         run: |
-          echo "==> 步骤1: 清理 release 中已有的重复版本（扫描模式）"
-          echo "    此步骤确保 release 自身没有重复包"
-          mkdir -p "$OUTPUT_DIR"
-          bash scripts/clean-old-assets.sh
-      
-      # 步骤2：清理与本次构建冲突的旧版本（本地包模式）
-      - name: Step 2 - Clean old versions conflicting with new builds (local mode)
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_FULL: ${{ github.repository }}
-          OUTPUT_DIR: ./output
-          RELEASE_TAG: latest
-        run: |
-          echo "==> 步骤2: 清理 release 中与本次新构建冲突的旧版本（基于本地包模式）"
-          echo "    此步骤删除 release 中所有与本次新构建包名相同的旧版本"
-          bash scripts/clean-old-assets.sh
-      
-      # 验证最终结果
-      - name: Verify no duplicates remain in release
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
-        run: |
+          echo "==> 清理 release 中的重复版本"
+          mkdir -p /tmp/empty_for_scan
+          OUTPUT_DIR=/tmp/empty_for_scan bash scripts/clean-old-assets.sh
+          
           echo "==> 验证清理结果"
           DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
             jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
@@ -475,135 +427,77 @@ jobs:
           if [ -n "$DUPES" ]; then
             echo "❌ 错误：仍然存在重复的包："
             echo "$DUPES"
-            echo ""
-            echo "这不应该发生。可能的原因："
-            echo "  1. 清理脚本执行失败"
-            echo "  2. 在清理期间有其他任务上传了包"
             exit 1
-          else
-            echo "✓ 验证通过：release 中无重复版本"
           fi
-      
-      - name: Download existing data from latest release
-        id: download-existing
-        env:
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
-          CREATE_SNAPSHOT: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot) }}
-        run: |
-          echo "==> 下载 latest Release 中的现有数据"
+          echo "✓ 验证通过：无重复版本"
           
-          # 确保 output 目录存在
+          echo ""
+          echo "==> 下载 latest release 中的所有包（含新构建的）"
           mkdir -p output
           
-          # 获取 latest release 信息
           LATEST_JSON=$(curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" || echo "{}")
           
-          # 检查是否存在
           if echo "$LATEST_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
-            echo "==> 首次构建，无现有数据"
-            echo "has-existing-data=false" >> $GITHUB_OUTPUT
+            echo "  latest release 不存在，这是首次构建"
             exit 0
           fi
           
-          # 检查 assets 是否存在且不为空
-          assets_count=$(echo "$LATEST_JSON" | jq '.assets | length // 0')
-          if [ "$assets_count" -eq 0 ]; then
-            echo "==> latest release 存在但没有 assets，可能是首次构建"
-            echo "has-existing-data=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+          # 下载所有包文件
+          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
+            filename=$(basename "$url")
+            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
+            echo "  下载 $filename"
+            curl -sL "$url" -o "output/$filename"
+          done
           
-          echo "has-existing-data=true" >> $GITHUB_OUTPUT
+          pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          echo "==> 共下载 $pkg_count 个包"
+      
+      # 增量模式不需要额外操作（包已实时上传到 latest）
+      # 快照模式已在上一步下载所有包
+      - name: List packages in output directory
+        id: list-packages
+        run: |
+          echo "==> output 目录中的包:"
+          ls -lh output/ 2>/dev/null || echo "  output 目录为空或不存在"
           
-          if [ "$CREATE_SNAPSHOT" = "true" ]; then
-            # 创建快照：下载所有包（需要完整副本）
-            echo "==> 快照模式：下载所有包文件"
-            echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
-              filename=$(basename "$url")
-              # URL 解码文件名
-              filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
-              
-              # 跳过已存在的包（新构建优先）
-              if [ -f "output/$filename" ]; then
-                echo "  跳过 $filename (已有新版本)"
-                continue
-              fi
-              
-              echo "  下载 $filename"
-              curl -sL "$url" -o "output/$filename"
-            done
-          else
-            # 日常更新：只下载数据库文件（增量更新）
-            echo "==> 增量模式：只下载数据库文件"
-            echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | test("\\.(db|files)")) | .browser_download_url' | while read url; do
-              filename=$(basename "$url")
-              # URL 解码文件名
-              filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
-              echo "  下载 $filename"
-              curl -sL "$url" -o "output/$filename"
-            done
-            
-          fi
-          
-          echo "==> 当前文件列表:"
-          ls -lh output/
+          pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l || echo 0)
+          echo "total_packages=$pkg_count" >> $GITHUB_OUTPUT
+          echo "==> 共 $pkg_count 个包"
       
       - name: Verify package files exist
         id: verify-packages
         env:
-          HAS_EXISTING_DATA: ${{ steps.download-existing.outputs.has-existing-data }}
+          TOTAL_PACKAGES: ${{ steps.list-packages.outputs.total_packages }}
           HAS_NEW_BUILDS: ${{ needs.list-packages.outputs.all-packages != '[]' }}
           IS_SNAPSHOT: ${{ steps.check-mode.outputs.is-snapshot }}
         run: |
-          pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          pkg_count="${TOTAL_PACKAGES:-0}"
           
           if [ "$pkg_count" -eq 0 ]; then
-            # 情况 1: 首次构建且无包更新（既无现有数据，也无新构建）
-            if [ "$HAS_EXISTING_DATA" != "true" ] && [ "$HAS_NEW_BUILDS" != "true" ]; then
-              echo "==> 首次构建且无包更新，跳过后续步骤"
-              echo "should-continue=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            
-            # 情况 2: 增量模式下无新构建（正常情况：没有包更新）
-            if [ "$IS_SNAPSHOT" != "true" ] && [ "$HAS_NEW_BUILDS" != "true" ]; then
-              echo "==> 增量模式：无包更新，跳过后续步骤"
-              echo "should-continue=false" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            
-            # 情况 3: 有新构建或快照模式，但没有包文件（异常情况）
-            echo "❌ 错误: 没有找到任何包文件！"
-            echo ""
-            echo "诊断信息："
-            echo "  - 有现有数据: $HAS_EXISTING_DATA"
-            echo "  - 有新构建: $HAS_NEW_BUILDS"
-            echo "  - 快照模式: $IS_SNAPSHOT"
-            echo ""
-            echo "可能的原因："
-            if [ "$HAS_NEW_BUILDS" = "true" ]; then
-              echo "  1. ❌ artifacts 下载失败"
-            fi
+            # 快照模式下没有包：异常情况（应该至少有已存在的包）
             if [ "$IS_SNAPSHOT" = "true" ]; then
-              echo "  2. ❌ release 下载失败"
+              echo "❌ 错误: 快照模式下没有找到任何包文件"
+              echo "  这可能是首次构建且没有包更新"
+              echo "should-continue=false" >> $GITHUB_OUTPUT
+              exit 0
             fi
-            echo "  3. ❌ 构建过程出现问题"
-            exit 1
+            
+            # 增量模式下没有包：正常情况（可能没有包更新）
+            echo "==> 增量模式：无包数据，跳过后续步骤"
+            echo "should-continue=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
           
           echo "✓ 找到 $pkg_count 个包文件"
           
-          # 快照模式：无论是否有新构建，都要发布
-          # 增量模式：只有当有新构建时才发布
+          # 快照模式：需要生成完整数据库
+          # 增量模式：数据库已由实时更新维护，无需重新生成
           if [ "$IS_SNAPSHOT" = "true" ]; then
-            echo "==> 快照模式：将创建 release"
-            echo "should-continue=true" >> $GITHUB_OUTPUT
-          elif [ "$HAS_NEW_BUILDS" = "true" ]; then
-            echo "==> 增量模式：有新构建，将更新 release"
+            echo "==> 快照模式：将生成完整数据库"
             echo "should-continue=true" >> $GITHUB_OUTPUT
           else
-            echo "==> 增量模式：无新构建，跳过 release 更新"
+            echo "==> 增量模式：数据库已实时更新，跳过"
             echo "should-continue=false" >> $GITHUB_OUTPUT
           fi
       
@@ -614,16 +508,15 @@ jobs:
         run: |
           bash scripts/generate-repo.sh
       
-      - name: Upload repository artifacts
+      - name: Upload database artifacts (snapshot mode)
         if: steps.verify-packages.outputs.should-continue == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: repository
+          name: repository-database
           path: |
-            output/*.pkg.tar.zst
             output/*.db*
             output/*.files*
-          retention-days: 7
+          retention-days: 1
 
   # ===========================================================================
   # Job 4: 增量模式 - 清理和最终一致性检查
@@ -886,7 +779,7 @@ jobs:
   # Job 5: 发布到 GitHub Releases
   # ===========================================================================
   release:
-    needs: [generate-snapshot, finalize-incremental]
+    needs: [list-packages, generate-snapshot, finalize-incremental]
     name: Publish Release
     runs-on: ubuntu-latest
     if: |
@@ -901,6 +794,11 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 jq curl
       
       - name: Setup version comparison tool
         run: |
@@ -917,20 +815,20 @@ jobs:
             echo "==> 增量模式"
           fi
 
-      - name: Download repository artifacts (snapshot mode)
+      - name: Download database artifacts (snapshot mode)
         if: steps.mode.outputs.mode == 'snapshot'
         uses: actions/download-artifact@v4
         with:
-          name: repository
+          name: repository-database
           path: output/
       
-      - name: Get package count from latest release (incremental mode)
-        if: steps.mode.outputs.mode == 'incremental'
+      - name: Get package count from latest release
+        if: always()
         run: |
-          echo "==> 增量模式：从 latest release 统计包数量"
+          echo "==> 从 latest release 统计包数量"
           mkdir -p output
           
-          # 从 release assets 统计包数量
+          # 从 release assets 统计包数量（所有模式都从 latest 统计）
           pkg_count=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
             jq '[.assets[] | select(.name | endswith(".pkg.tar.zst"))] | length')
           
@@ -943,20 +841,14 @@ jobs:
           echo "date=$(date +'%Y.%m.%d')" >> $GITHUB_OUTPUT
           echo "datetime=$(date +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
           
-          # 统计包数量
-          if [ "${{ steps.mode.outputs.mode }}" = "snapshot" ]; then
-            # 快照模式：统计 output 目录中的包
-            pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
-          else
-            # 增量模式：从之前统计的结果读取
-            pkg_count=$(cat /tmp/pkg_count.txt 2>/dev/null || echo "0")
-          fi
+          # 统计包数量（从 latest release）
+          pkg_count=$(cat /tmp/pkg_count.txt 2>/dev/null || echo "0")
           echo "package_count=$pkg_count" >> $GITHUB_OUTPUT
           
-          # 统计本次构建的新包数量（根据模式）
+          # 统计本次构建的新包数量
           if [ "${{ steps.mode.outputs.mode }}" = "snapshot" ]; then
-            # 快照模式：统计 output 目录中的包
-            new_pkg_count=$(ls output/*.pkg.tar.zst 2>/dev/null | wc -l)
+            # 快照模式：从 list-packages 获取
+            new_pkg_count=$(echo '${{ needs.list-packages.outputs.all-packages }}' | jq 'length // 0')
           else
             # 增量模式：从 finalize-incremental 的输出获取
             new_pkg_count="${{ needs.finalize-incremental.outputs.new-package-count }}"
@@ -991,7 +883,7 @@ jobs:
             echo "✓ 验证通过：无重复版本"
           fi
       
-      - name: Update latest release (snapshot mode)
+      - name: Update latest release database (snapshot mode)
         if: steps.mode.outputs.mode == 'snapshot'
         uses: softprops/action-gh-release@v1
         with:
@@ -1056,6 +948,26 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Download all packages for dated snapshot
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
+        run: |
+          echo "==> 从 latest release 下载所有包以创建日期快照"
+          
+          # 获取 latest release 信息
+          LATEST_JSON=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest")
+          
+          # 下载所有包文件（数据库已经在 output/ 中了）
+          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
+            filename=$(basename "$url")
+            # URL 解码文件名
+            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
+            echo "  下载 $filename"
+            curl -sL "$url" -o "output/$filename"
+          done
+          
+          pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          echo "==> 共下载 $pkg_count 个包，准备创建快照"
       
       - name: Create dated snapshot
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
