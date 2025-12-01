@@ -32,6 +32,12 @@ if [ "$PACKAGE_NAME" == "lib32-mesa-git" ]; then
   REMOVE_PACKAGES="mesa vulkan-intel vulkan-radeon vulkan-mesa-device-select"
 fi
 
+if [ "$PACKAGE_NAME" == "bilibili-bin" ]; then
+  echo "  → Adding skorion repository"
+  sed -i '/^\[core\]/i [skorion]\nSigLevel = Optional TrustAll\nServer = https://github.com/SkorionOS/skorion-packages/releases/download/latest\n' /etc/pacman.conf
+  DEPENDENCIES_PACKAGES+=" electron28-bin"
+fi
+
 pacman-key --init
 pacman-key --populate archlinux
 pacman -Sy
