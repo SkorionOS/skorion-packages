@@ -1,0 +1,10 @@
+FROM fedora:latest
+RUN dnf install -y rpm-build rpmdevtools spectool \
+    appstream dbus-devel gcc-c++ git-core glfw-devel glslang-devel \
+    libappstream-glib libstdc++-static mesa-libGL-devel meson \
+    python3-mako spdlog-devel vulkan-headers \
+    wayland-devel libX11-devel libxkbcommon-devel json-devel \
+    hicolor-icon-theme python3-matplotlib python3-numpy && \
+    dnf clean all && \
+    rpmdev-setuptree
+WORKDIR /root
