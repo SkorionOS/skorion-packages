@@ -44,7 +44,7 @@ optdepends=(
 provides=('mangohud' 'mangoapp')
 replaces=('mangoapp')
 conflicts=('mangohud' 'mangohud-common-git' 'mangoapp')
-_commit=d7654ebcefb3bdb106d581c937417aa2007eaeeb
+_commit=10c3a130296c10477e54ddbdb6b7f819fd224edb
 source=(
     "$_pkgname::git+$url#commit=$_commit"
     0001-feat-display-battery-charging-power.patch
