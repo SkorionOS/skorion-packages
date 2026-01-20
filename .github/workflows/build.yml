@@ -66,7 +66,7 @@ jobs:
           # git, svn, mercurial, bzr: VCS 工具（pkgver() 函数可能需要）
           # cargo, rust: Rust 项目的 pkgver() 可能需要
           # jq, curl, tar, findutils, meson: 脚本依赖
-          pacman -S --noconfirm base-devel git svn mercurial bzr cargo rust jq curl tar findutils sudo meson
+          pacman -S --noconfirm base-devel git svn mercurial bzr cargo rust jq curl tar findutils sudo meson python
       
       - name: Clean up stale locks from previous runs
         run: |
@@ -543,7 +543,7 @@ jobs:
       - name: Install dependencies
         run: |
           pacman -Syu --noconfirm
-          pacman -S --noconfirm pacman-contrib curl jq
+          pacman -S --noconfirm pacman-contrib curl jq python
       
       - name: Clean up all lock refs
         run: |
