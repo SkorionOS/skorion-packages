@@ -1,0 +1,36 @@
+# Maintainer: William Edwards <shadowapex@gmail.com>
+pkgname=inputplumber-git
+_pkgbase=inputplumber
+pkgver=v0.72.0.r7.g35d87b2
+pkgrel=1
+pkgdesc="Open source input router and remapper daemon for Linux"
+arch=('x86_64')
+url="https://github.com/honjow/InputPlumber"
+license=('GPL')
+depends=('dbus' 'libevdev' 'libiio')
+makedepends=('rust' 'make' 'cmake' 'clang' 'git')
+provides=('inputplumber')
+conflicts=('inputplumber-bin')
+source=("${_pkgbase}::git+https://github.com/honjow/${_pkgbase}.git#branch=dev")
+options=(!lto)
+
+sha256sums=('SKIP')
+
+pkgver() {
+	cd "$srcdir/${_pkgbase}"
+	git describe --long --tags | sed 's/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+prepare() {
+	cd "$srcdir/${_pkgbase}"
+}
+
+build() {
+	cd "$srcdir/${_pkgbase}"
+	make build
+}
+
+package() {
+	cd "$srcdir/${_pkgbase}"
+	make install PREFIX=${pkgdir}/usr NO_RELOAD=true
+}
