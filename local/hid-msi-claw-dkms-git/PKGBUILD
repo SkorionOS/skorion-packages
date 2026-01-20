@@ -1,6 +1,6 @@
 _pkgname=hid-msi-claw
 pkgname=$_pkgname-dkms-git
-pkgver=0.0.2
+pkgver=0.0.2.r2.g0629362
 pkgrel=1
 pkgdesc='Linux kernel driver for MSI Claw device'
 arch=('x86_64')
@@ -15,6 +15,11 @@ source=(
 sha256sums=(
 	'SKIP'
 )
+
+pkgver() {
+    cd "$srcdir/$_pkgname"-dkms
+    git describe --tags --long --abbrev=7 | sed 's/^v//;s/-rc[0-9]\+-/-/;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
 
 #prepare() {
 #  sed -e "s/@CFLGS@//" \
