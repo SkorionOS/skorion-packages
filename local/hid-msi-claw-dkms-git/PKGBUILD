@@ -1,6 +1,6 @@
 _pkgname=hid-msi-claw
 pkgname=$_pkgname-dkms-git
-pkgver=0.0.2.r2.g0629362
+pkgver=0.0.2.r24.gea70f04
 pkgrel=1
 pkgdesc='Linux kernel driver for MSI Claw device'
 arch=('x86_64')
@@ -10,15 +10,25 @@ depends=('dkms')
 
 #install=$_pkgname.install
 source=(
-	"git+https://github.com/honjow/hid-msi-claw-dkms.git#branch=dev"
+        "git+https://github.com/honjow/hid-msi-claw-dkms.git#branch=dev"
+        "0001-test-update-LED-name.patch"
 )
-sha256sums=(
-	'SKIP'
-)
+sha256sums=('SKIP'
+            '58bc882db22e5c9a92a3b9f1bdabcf436ebbe54bafb4d4a36eec1e3b98062ae0')
 
 pkgver() {
     cd "$srcdir/$_pkgname"-dkms
     git describe --tags --long --abbrev=7 | sed 's/^v//;s/-rc[0-9]\+-/-/;s/\([^-]*-g\)/r\1/;s/-/./g'
+}
+
+prepare() {
+    cd "$srcdir/$_pkgname"-dkms
+
+    local src
+    for src in "${source[@]}"; do
+        [[ $src = *.patch ]] || continue
+        patch -p1 < "${srcdir}"/$src
+    done
 }
 
 #prepare() {

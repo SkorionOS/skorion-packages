@@ -1,0 +1,24 @@
+From 26fe11c2da209bf2b3dac5f23d3dcf631895b4fa Mon Sep 17 00:00:00 2001
+From: honjow <honjow311@gmail.com>
+Date: Thu, 22 Jan 2026 15:54:17 +0800
+Subject: [PATCH] test: update LED name
+
+---
+ hid-msi-claw.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/hid-msi-claw.c b/hid-msi-claw.c
+index ed02633..6596e9e 100644
+--- a/hid-msi-claw.c
++++ b/hid-msi-claw.c
+@@ -19,7 +19,7 @@
+ /* LED constants */
+ #define MSI_CLAW_LED_ZONES 9
+ #define MSI_CLAW_LED_MAX_FRAMES 8
+-#define MSI_CLAW_LED_NAME "msi_claw:rgb:joystick_rings"
++#define MSI_CLAW_LED_NAME "go_s:rgb:joystick_rings"
+
+ enum msi_claw_led_effect {
+        MSI_CLAW_LED_EFFECT_MONOCOLOR = 0,
+--
+2.51.2
