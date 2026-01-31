@@ -125,6 +125,9 @@ jobs:
           LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
           SRCDEST: /tmp/makepkg-cache
         run: |
+          # 清理可能存在的 git 锁文件，避免缓存冲突
+          find /tmp/makepkg-cache -name "*.lock" -type f -delete 2>/dev/null || true
+          
           # 以 builder 用户运行检查脚本，保留环境变量
           sudo -u builder \
             REPO_OWNER="$REPO_OWNER" \
@@ -268,9 +271,14 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/output"
           
+          # 为每个包使用独立的 SRCDEST 子目录，避免 git 仓库名称冲突
+          PACKAGE_SRCDEST="/tmp/makepkg-cache/${{ matrix.package }}"
+          mkdir -p "$PACKAGE_SRCDEST"
+          chmod 777 "$PACKAGE_SRCDEST"
+          
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/workspace" \
-            -v "/tmp/makepkg-cache:/tmp/makepkg-cache" \
+            -v "$PACKAGE_SRCDEST:/tmp/makepkg-cache" \
             -e SRCDEST=/tmp/makepkg-cache \
             -w /workspace \
             archlinux:latest \
