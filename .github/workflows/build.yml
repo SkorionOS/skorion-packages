@@ -430,6 +430,7 @@ jobs:
           echo "==> 验证清理结果"
           DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
             jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
+            while read name; do python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$name"; done | \
             sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
           
           if [ -n "$DUPES" ]; then
@@ -610,6 +611,7 @@ jobs:
           echo "==> 验证清理结果"
           DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
             jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
+            while read name; do python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$name"; done | \
             sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
           
           if [ -n "$DUPES" ]; then
@@ -683,7 +685,8 @@ jobs:
           
           # 获取 latest release 中的实际包列表
           echo "  获取 release 包列表..."
-          release_packages=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | sort)
+          release_packages=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
+            while read name; do python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$name"; done | sort)
           
           # 对比包列表
           db_count=$(echo -n "$db_packages" | grep -c . || echo 0)

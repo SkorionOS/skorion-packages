@@ -136,6 +136,9 @@ if [ "$CLEAN_MODE" = "local" ]; then
 
     # 避免使用管道（会创建子shell），使用进程替换
     while IFS='|' read -r asset_id asset_name; do
+        # URL 解码文件名
+        asset_name=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$asset_name")
+        
         pkg_name=$(extract_package_name "$asset_name")
         
         # 如果本地有相同的文件名，跳过（版本相同）
@@ -283,6 +286,9 @@ else
         # 显示和处理所有版本
         for version_info in "${version_array[@]}"; do
             IFS=':' read -r asset_id asset_name created_at <<< "$version_info"
+            
+            # URL 解码文件名
+            asset_name=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$asset_name")
             
             # 重新提取版本号用于显示
             pkg_full="${asset_name%.pkg.tar.zst}"

@@ -318,8 +318,12 @@ else
         local makepkg_start
         makepkg_start=$(date +%s)
         
+        # 为每个包创建独立的 SRCDEST，避免 git 仓库名称冲突
+        local pkg_srcdest="${SRCDEST:-/tmp/makepkg-cache}/$pkg_name"
+        mkdir -p "$pkg_srcdest"
+        
         # 后台执行 makepkg，同时显示心跳
-        (cd "$pkgbuild_dir" && makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null) &
+        (cd "$pkgbuild_dir" && SRCDEST="$pkg_srcdest" makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null) &
         local makepkg_pid=$!
         
         # 显示心跳，每 10 秒输出一次
