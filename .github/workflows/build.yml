@@ -120,9 +120,12 @@ jobs:
           # 给予工作目录权限
           chown -R builder:builder $GITHUB_WORKSPACE
           
-          # 设置 makepkg 源码缓存目录权限
+          # 设置缓存目录权限
           mkdir -p /tmp/makepkg-cache
           chown -R builder:builder /tmp/makepkg-cache
+          
+          mkdir -p /var/cache/pacman/pkg
+          chmod 755 /var/cache/pacman/pkg
       
       - name: Check package updates
         id: check-updates
@@ -222,8 +225,8 @@ jobs:
         run: |
           mkdir -p /tmp/makepkg-cache
           chmod 777 /tmp/makepkg-cache
-          mkdir -p /var/cache/pacman/pkg
-          chmod 777 /var/cache/pacman/pkg
+          sudo mkdir -p /var/cache/pacman/pkg
+          sudo chmod 777 /var/cache/pacman/pkg
       
       - name: Check if package needs full cleanup
         id: check-cleanup
