@@ -59,6 +59,14 @@ jobs:
           restore-keys: |
             version-check-sources-
       
+      - name: Cache pacman packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/pacman/pkg
+          key: pacman-pkg-${{ runner.os }}-${{ hashFiles('**/PKGBUILD') }}
+          restore-keys: |
+            pacman-pkg-${{ runner.os }}-
+      
       - name: Install dependencies
         run: |
           pacman -Syu --noconfirm
@@ -201,11 +209,21 @@ jobs:
           restore-keys: |
             version-check-sources-
       
+      - name: Restore pacman cache for building
+        uses: actions/cache/restore@v4
+        with:
+          path: /var/cache/pacman/pkg
+          key: pacman-pkg-${{ runner.os }}-${{ hashFiles('**/PKGBUILD') }}
+          restore-keys: |
+            pacman-pkg-${{ runner.os }}-
+      
       # 确保缓存目录存在
       - name: Setup cache directory
         run: |
           mkdir -p /tmp/makepkg-cache
           chmod 777 /tmp/makepkg-cache
+          mkdir -p /var/cache/pacman/pkg
+          chmod 777 /var/cache/pacman/pkg
       
       - name: Check if package needs full cleanup
         id: check-cleanup
@@ -279,6 +297,7 @@ jobs:
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/workspace" \
             -v "$PACKAGE_SRCDEST:/tmp/makepkg-cache" \
+            -v "/var/cache/pacman/pkg:/var/cache/pacman/pkg" \
             -e SRCDEST=/tmp/makepkg-cache \
             -w /workspace \
             archlinux:latest \

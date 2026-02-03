@@ -318,33 +318,71 @@ else
         local makepkg_start
         makepkg_start=$(date +%s)
         
-        # 为每个包创建独立的 SRCDEST，避免 git 仓库名称冲突
-        local pkg_srcdest="${SRCDEST:-/tmp/makepkg-cache}/$pkg_name"
-        mkdir -p "$pkg_srcdest"
+        # 策略：默认共享 SRCDEST（保持缓存复用），冲突时隔离
+        local base_srcdest="${SRCDEST:-/tmp/makepkg-cache}"
+        local use_isolated=false
+        local attempt=1
         
-        # 后台执行 makepkg，同时显示心跳
-        (cd "$pkgbuild_dir" && SRCDEST="$pkg_srcdest" makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null) &
-        local makepkg_pid=$!
-        
-        # 显示心跳，每 10 秒输出一次
-        local heartbeat_count=0
-        while kill -0 $makepkg_pid 2>/dev/null; do
-            sleep 10
-            ((heartbeat_count += 10))
-            echo "    [makepkg][$(timestamp)] $pkg_name: 仍在运行... (已耗时 ${heartbeat_count}s)" >&2
+        while [ $attempt -le 2 ]; do
+            local current_srcdest="$base_srcdest"
+            if [ "$use_isolated" = true ]; then
+                # 第二次尝试：使用独立 SRCDEST
+                current_srcdest="$base_srcdest/$pkg_name"
+                mkdir -p "$current_srcdest"
+                echo "    [makepkg] 检测到冲突，使用独立 SRCDEST: $current_srcdest" >&2
+            fi
+            
+            # 后台执行 makepkg，同时显示心跳
+            (cd "$pkgbuild_dir" && SRCDEST="$current_srcdest" makepkg --nobuild --nodeps --skipinteg 2>"$makepkg_err" >/dev/null) &
+            local makepkg_pid=$!
+            
+            # 显示心跳，每 10 秒输出一次
+            local heartbeat_count=0
+            while kill -0 $makepkg_pid 2>/dev/null; do
+                sleep 10
+                ((heartbeat_count += 10))
+                echo "    [makepkg][$(timestamp)] $pkg_name: 仍在运行... (已耗时 ${heartbeat_count}s)" >&2
+            done
+            
+            # 等待 makepkg 完成并获取退出状态
+            wait $makepkg_pid
+            local makepkg_status=$?
+            
+            local makepkg_end
+            makepkg_end=$(date +%s)
+            local makepkg_time=$((makepkg_end - makepkg_start))
+            
+            if [ $makepkg_status -eq 0 ]; then
+                echo "    [makepkg][$(timestamp)] 完成 (总耗时 ${makepkg_time}s)" >&2
+                rm -f "$makepkg_err"
+                break
+            else
+                # 检查是否是 git 仓库冲突
+                if [ $attempt -eq 1 ] && grep -q "is not a clone of" "$makepkg_err"; then
+                    # 提取冲突的仓库目录名
+                    local conflict_dir
+                    conflict_dir=$(grep "is not a clone of" "$makepkg_err" | sed -n 's|.*ERROR: \(.*\) is not a clone of.*|\1|p' | head -1)
+                    
+                    if [ -n "$conflict_dir" ] && [ -d "$conflict_dir" ]; then
+                        echo "    [makepkg] 检测到 git 仓库冲突: $conflict_dir" >&2
+                        echo "    [makepkg] 删除冲突目录并重试..." >&2
+                        rm -rf "$conflict_dir"
+                        use_isolated=true
+                        ((attempt++))
+                        makepkg_start=$(date +%s)  # 重置计时
+                        continue
+                    fi
+                fi
+                
+                # 其他错误或第二次仍失败
+                echo "    [错误][$(timestamp)] makepkg 执行失败 (总耗时 ${makepkg_time}s)" >&2
+                grep "^==> ERROR:" "$makepkg_err" | head -3 | sed 's/^/    /' >&2
+                rm -f "$makepkg_err"
+                return 1
+            fi
         done
         
-        # 等待 makepkg 完成并获取退出状态
-        wait $makepkg_pid
-        local makepkg_status=$?
-        
-        local makepkg_end
-        makepkg_end=$(date +%s)
-        local makepkg_time=$((makepkg_end - makepkg_start))
-        
         if [ $makepkg_status -eq 0 ]; then
-            echo "    [makepkg][$(timestamp)] 完成 (总耗时 ${makepkg_time}s)" >&2
-            rm -f "$makepkg_err"
             
             # Read new pkgver after makepkg executed pkgver()
             # Use source to get expanded variable values (handles pkgver="$_tag" etc)

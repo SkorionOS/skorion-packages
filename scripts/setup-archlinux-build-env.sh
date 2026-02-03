@@ -58,7 +58,8 @@ echo "  → Installing dependencies packages: $DEPENDENCIES_PACKAGES"
 echo "  → Installing base packages"
 pacman -Su --noconfirm
 pacman -S --noconfirm $DEPENDENCIES_PACKAGES
-pacman -Scc --noconfirm
+# 不清理缓存，保留已下载的包供下次复用（通过 GitHub Actions cache 持久化）
+# pacman -Sc --noconfirm
 
 # Create builder user
 echo "  → Creating builder user"
