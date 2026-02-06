@@ -3,11 +3,11 @@
 
 _pkgname=xonedo
 pkgname=xonedo-sk-dkms
-pkgver=0.5.4.r1.gaa1a237
+pkgver=0.5.4.r10.g951efb2
 pkgrel=1
 pkgdesc='Modern Linux driver for Xbox One and Xbox Series X|S controllers via the official dongle only'
 arch=('x86_64')
-url='https://github.com/honjow/xone.git'
+url='https://github.com/honjow/xonedo.git'
 license=('GPL2')
 depends=('dkms')
 makedepends=('git')
