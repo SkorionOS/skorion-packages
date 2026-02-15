@@ -38,7 +38,7 @@ if [ "$PACKAGE_NAME" == "bilibili-bin" ]; then
   DEPENDENCIES_PACKAGES+=" electron28-bin"
 fi
 
-if [ "$PACKAGE_NAME" == "sk-chos-tool" ]; then
+if [[ "$PACKAGE_NAME" == "sk-chos-tool" || "$PACKAGE_NAME" == "sk-chos-addon" ]]; then
   echo "  → Adding skorion repository"
   sed -i '/^\[core\]/i [skorion]\nSigLevel = Optional TrustAll\nServer = https://github.com/SkorionOS/skorion-packages/releases/download/latest\n' /etc/pacman.conf
   DEPENDENCIES_PACKAGES+=" fpaste refind-r"
