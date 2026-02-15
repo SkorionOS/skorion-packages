@@ -21,6 +21,7 @@ REPO_NAME="${REPO_NAME:-skorion-packages}"
 AUR_OUTPUT_FILE="${AUR_OUTPUT_FILE:-updated-aur-packages.txt}"
 LOCAL_OUTPUT_FILE="${LOCAL_OUTPUT_FILE:-updated-local-packages.txt}"
 FORCE_REBUILD="${FORCE_REBUILD:-}"
+SKIP_PACKAGES="${SKIP_PACKAGES:-}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARN, ERROR
 export LOG_LEVEL  # 导出供子进程使用
 
@@ -99,6 +100,24 @@ if [ -n "$FORCE_REBUILD" ]; then
     log_debug "$(cat "$FORCE_REBUILD_LIST")"
 fi
 export FORCE_REBUILD_LIST
+
+# 处理跳过构建的包列表
+SKIP_PACKAGES_LIST=$(mktemp)
+if [ -n "$SKIP_PACKAGES" ]; then
+    log_info "==> 跳过构建包列表: $SKIP_PACKAGES"
+    IFS=',' read -ra SKIP_PKGS <<< "$SKIP_PACKAGES"
+    for pkg in "${SKIP_PKGS[@]}"; do
+        pkg=$(echo "$pkg" | xargs)  # 去除空格
+        if [ -n "$pkg" ]; then
+            echo "$pkg" >> "$SKIP_PACKAGES_LIST"
+            log_info "  - $pkg (跳过)"
+        fi
+    done
+    log_debug "Skip packages list file: $SKIP_PACKAGES_LIST"
+    log_debug "Skip packages list contents:"
+    log_debug "$(cat "$SKIP_PACKAGES_LIST")"
+fi
+export SKIP_PACKAGES_LIST
 
 # 下载 latest Release 的包文件列表（从 assets）
 echo "==> 下载 latest Release 信息"
@@ -247,7 +266,11 @@ echo "==> 检查 AUR 包"
 
 if [ "$FIRST_BUILD" = true ]; then
     echo "==> 首次构建，构建所有 AUR 包"
-    grep -v '^#' aur.conf | grep -v '^$' > "$AUR_OUTPUT_FILE"
+    if [ -f "$SKIP_PACKAGES_LIST" ] && [ -s "$SKIP_PACKAGES_LIST" ]; then
+        grep -v '^#' aur.conf | grep -v '^$' | grep -Fxvf "$SKIP_PACKAGES_LIST" > "$AUR_OUTPUT_FILE"
+    else
+        grep -v '^#' aur.conf | grep -v '^$' > "$AUR_OUTPUT_FILE"
+    fi
 else
     echo "==> 增量检测 AUR 包（批量+并行）"
     
@@ -586,6 +609,14 @@ else
             return
         fi
         
+        # 检查是否在跳过列表中
+        if [ -f "$SKIP_PACKAGES_LIST" ] && [ -s "$SKIP_PACKAGES_LIST" ]; then
+            if grep -Fxq "$pkg_name" "$SKIP_PACKAGES_LIST" 2>/dev/null; then
+                echo "[$(timestamp)] ⏭ $pkg_name: 已跳过（在跳过列表中）" >&2
+                return
+            fi
+        fi
+        
         # 检查是否在强制重建列表中
         log_debug "  [force-check] Checking if $pkg_name is in force rebuild list: $FORCE_REBUILD_LIST"
         if [ -f "$FORCE_REBUILD_LIST" ] && [ -s "$FORCE_REBUILD_LIST" ]; then
@@ -812,6 +843,14 @@ if [ -f "aur-pinned.conf" ]; then
         [[ "$pkg_name" =~ ^#.*$ ]] && continue
         [ -z "$pkg_name" ] && continue
         
+        # 检查是否在跳过列表中
+        if [ -f "$SKIP_PACKAGES_LIST" ] && [ -s "$SKIP_PACKAGES_LIST" ]; then
+            if grep -Fxq "$pkg_name" "$SKIP_PACKAGES_LIST" 2>/dev/null; then
+                echo "  ⏭ $pkg_name (pinned): 已跳过（在跳过列表中）"
+                continue
+            fi
+        fi
+        
         # 获取旧版本
         old_ver=""
         if [ -n "${OLD_VERSIONS[$pkg_name]}" ]; then
@@ -836,7 +875,11 @@ if [ ! -d "local" ]; then
     echo "==> 无本地包目录"
 elif [ "$FIRST_BUILD" = true ]; then
     echo "==> 首次构建，构建所有本地包"
-    find local -mindepth 1 -maxdepth 1 -type d -exec basename {} \; > "$LOCAL_OUTPUT_FILE"
+    if [ -f "$SKIP_PACKAGES_LIST" ] && [ -s "$SKIP_PACKAGES_LIST" ]; then
+        find local -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | grep -Fxvf "$SKIP_PACKAGES_LIST" > "$LOCAL_OUTPUT_FILE"
+    else
+        find local -mindepth 1 -maxdepth 1 -type d -exec basename {} \; > "$LOCAL_OUTPUT_FILE"
+    fi
 else
     echo "==> 增量检测本地包（并行）"
     
@@ -866,6 +909,14 @@ else
         fi
         
         echo "[$(timestamp)] ⏳ 检查本地包: $pkg_name" >&2
+        
+        # 检查是否在跳过列表中
+        if [ -f "$SKIP_PACKAGES_LIST" ] && [ -s "$SKIP_PACKAGES_LIST" ]; then
+            if grep -Fxq "$pkg_name" "$SKIP_PACKAGES_LIST" 2>/dev/null; then
+                echo "[$(timestamp)] ⏭ $pkg_name: 已跳过（在跳过列表中）" >&2
+                return
+            fi
+        fi
         
         # 检查是否在强制重建列表中
         log_debug "  [force-check] Checking if $pkg_name is in force rebuild list: $FORCE_REBUILD_LIST"
@@ -930,4 +981,5 @@ echo "========================================"
 
 # 清理临时文件
 rm -f "$FORCE_REBUILD_LIST"
+rm -f "$SKIP_PACKAGES_LIST"
 
