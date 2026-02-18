@@ -1,0 +1,32 @@
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Kerrick Staley <mail@kerrickstaley.com>
+
+pkgname=pyzy
+pkgver=1.1.sk
+pkgrel=1
+pkgdesc='The Chinese PinYin and Bopomofo conversion library'
+arch=('x86_64')
+url='https://github.com/SkorionOS/pyzy'
+license=('LGPL')
+depends=('glib2' 'sqlite' 'util-linux')
+makedepends=('doxygen' 'gnome-common' 'python')
+source=("https://github.com/SkorionOS/pyzy/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+sha512sums=('b9be344a17685094fa850010c500965ba4ff360b411eb8d7a7f91de5758ffc5c99e73fa260e8680c69a0d120fb7f83da911fa4634ee499fc6e8f1c4a2cd4ce6f')
+
+# prepare() {
+#   cd pyzy-$pkgver
+#   patch -p1 -i ../$pkgname-fail-on-error.patch
+#   patch -p1 -i ../$pkgname-py3-fix.patch
+# }
+
+build() {
+  cd pyzy-$pkgver
+  ./autogen.sh --prefix=/usr
+  sed -i -e 's/ -shared / -Wl,-O1,--as-needed\0/g' libtool
+  make
+}
+
+package() {
+  cd pyzy-$pkgver
+  make DESTDIR="$pkgdir" install
+}
