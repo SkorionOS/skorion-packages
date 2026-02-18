@@ -2,7 +2,7 @@
 # Contributor: Kerrick Staley <mail@kerrickstaley.com>
 
 pkgname=pyzy
-pkgver=1.1.sk2
+pkgver=1.1.sk3
 pkgrel=1
 pkgdesc='The Chinese PinYin and Bopomofo conversion library'
 arch=('x86_64')
@@ -11,7 +11,7 @@ license=('LGPL')
 depends=('glib2' 'sqlite' 'util-linux')
 makedepends=('doxygen' 'gnome-common' 'python')
 source=("https://github.com/SkorionOS/pyzy/archive/$pkgver/$pkgname-$pkgver.tar.gz")
-sha512sums=('0e7a067ac11955ccaf851118207f83b098536d3548c1bde67afc6d5b958ad507c01299b29e9e6a3ddfba195fdb6e0f338a2abad133deaa7133a19cb2f12a7c20')
+sha512sums=('ee75b708832f8578a373c9170bdcf404dfda7b2c1a4b3b43b6cb92ef07a73c94f2aca96b2dc1434b6a064dfd959dbcfc150e6d7c3054de56d902b9f69ed6fa70')
 
 # prepare() {
 #   cd pyzy-$pkgver
