@@ -1,7 +1,7 @@
 # Maintainer: Darvin Delgado <dnmodder at gmail dot com>
 
 _pkgname=MangoHud
-pkgname=mangohud-git
+pkgname=mangohud-sk-git
 pkgver=0.8.3.r6.gd7654eb
 pkgrel=1
 pkgdesc="A Vulkan overlay layer for monitoring FPS, temperatures, CPU/GPU load and more"
@@ -43,7 +43,7 @@ optdepends=(
 )
 provides=('mangohud' 'mangoapp')
 replaces=('mangoapp')
-conflicts=('mangohud' 'mangohud-common-git' 'mangoapp')
+conflicts=('mangohud' 'mangohud-common-git' 'mangoapp' 'mangohud-git')
 _commit=10c3a130296c10477e54ddbdb6b7f819fd224edb
 source=(
     "$_pkgname::git+$url#commit=$_commit"
