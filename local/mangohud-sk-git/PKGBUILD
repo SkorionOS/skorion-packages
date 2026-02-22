@@ -44,7 +44,7 @@ optdepends=(
 provides=('mangohud' 'mangoapp')
 replaces=('mangoapp')
 conflicts=('mangohud' 'mangohud-common-git' 'mangoapp' 'mangohud-git')
-_commit=10c3a130296c10477e54ddbdb6b7f819fd224edb
+_commit=9ebc85dfd1730a95f0334bf14151a02859aa9f97
 source=(
     "$_pkgname::git+$url#commit=$_commit"
     0001-feat-display-battery-charging-power.patch
@@ -52,9 +52,9 @@ source=(
     0003-amdgpu-add-cpu-temperature-fallback-for-gpu_metrics-.patch
     )
 sha256sums=('SKIP'
-            '4cc138237ba6807ed8cb6cdf19913af07fb8ff3712d77a90124f1b2a93fe4fa8'
-            'b911370a98080af35ec4c80a4390a4bcad97b91aeccd84a657c3e25abea6b004'
-            'a2139715a94a10bbc167bc914a8a9f4707b07d484fa3a51010c37f303c8f97de')
+            '7f0d4173c7566c6e6edf8d9896a0c57d41aa82256cf67c145c152200e0593e47'
+            '230cf30e1637775a8ae1eaa425dc12d962ba0e20f7147cd49caad4c92d3acdc9'
+            '397b88dfb0d842f7733f04fa6c4f19e17e7d9881e1ea18d7a103a9441b5c0e73')
 
 pkgver() {
     cd $_pkgname
