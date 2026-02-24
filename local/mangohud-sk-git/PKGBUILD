@@ -2,7 +2,7 @@
 
 _pkgname=MangoHud
 pkgname=mangohud-sk-git
-pkgver=0.8.3.r6.gd7654eb
+pkgver=0.8.3.r21.g9ebc85d
 pkgrel=1
 pkgdesc="A Vulkan overlay layer for monitoring FPS, temperatures, CPU/GPU load and more"
 url='https://github.com/flightlessmango/MangoHud'
@@ -50,11 +50,13 @@ source=(
     0001-feat-display-battery-charging-power.patch
     0002-Add-support-for-more-handheld-devices-to-fan-detecti.patch
     0003-amdgpu-add-cpu-temperature-fallback-for-gpu_metrics-.patch
+	0004-mangoapp-fix-busy-loop-causing-high-CPU-usage.patch
     )
 sha256sums=('SKIP'
-            '7f0d4173c7566c6e6edf8d9896a0c57d41aa82256cf67c145c152200e0593e47'
-            '230cf30e1637775a8ae1eaa425dc12d962ba0e20f7147cd49caad4c92d3acdc9'
-            '397b88dfb0d842f7733f04fa6c4f19e17e7d9881e1ea18d7a103a9441b5c0e73')
+            '80bbdcb33d5c5f6f7c63e3ebc851b1b7dfb4ce6a05d2c25a0fa2f71521e956e4'
+            'f850a59da9c234c2faa9e282df06479bc8b73c222ccb1692710456328cd667ba'
+            'a0f6ac9cd4e326379d9f41e5e6ba8af03a05019d66ef80c9382148516851f112'
+            'ed678c80bdbdcb6662271631ea55367ff7bd827323642836578b07c5c010b7a2')
 
 pkgver() {
     cd $_pkgname
