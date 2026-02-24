@@ -1,0 +1,37 @@
+From 94dfc7ca0edd87f4d7d4f8c6c8432cfb867659c9 Mon Sep 17 00:00:00 2001
+From: honjow <honjow311@gmail.com>
+Date: Tue, 24 Feb 2026 21:06:06 +0800
+Subject: [PATCH 4/4] mangoapp: fix busy loop causing high CPU usage
+
+Restore condition variable wait and new_frame reset that were
+removed in a3b5683. Without them the main loop spins continuously,
+driving mangoapp to ~70% CPU and Xwayland/gamescope along with it.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+---
+ src/app/main.cpp | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 2dbed1a..65edb98 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -387,7 +387,14 @@ int main(int, char**)
+     while (!glfwWindowShouldClose(window)){
+         real_params = get_params();
+         check_keybinds(*real_params);
+-        if (!real_params->no_display && new_frame){
++
++        if (!real_params->no_display) {
++            std::unique_lock<std::mutex> lk(mangoapp_m);
++            mangoapp_cv.wait(lk, [&]{return new_frame || real_params->no_display;});
++            new_frame = false;
++        }
++
++        if (!real_params->no_display){
+             if (mangoapp_paused){
+                 glfwShowWindow(window);
+                 render(window, *real_params);
+-- 
+2.53.0
+

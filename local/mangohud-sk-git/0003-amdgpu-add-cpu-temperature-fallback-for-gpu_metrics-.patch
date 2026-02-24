@@ -1,7 +1,7 @@
 From 06c7dacdfba1f5e8523e0df7da87e25ef7a20124 Mon Sep 17 00:00:00 2001
 From: honjow <honjow311@gmail.com>
 Date: Sun, 22 Feb 2026 09:36:55 +0800
-Subject: [PATCH 3/3] amdgpu: add cpu temperature fallback for gpu_metrics v3
+Subject: [PATCH 3/4] amdgpu: add cpu temperature fallback for gpu_metrics v3
 
 When temperature_core is zero or invalid, fall back to hwmon or
 temperature_soc as CPU temperature source.
@@ -56,5 +56,5 @@ index 9a9a261..c18475a 100644
  			uint32_t d_thm_core = V3_THROTTLING_DELTA(thm_core);
  			uint32_t d_thm_gfx  = V3_THROTTLING_DELTA(thm_gfx);
 -- 
-2.51.2
+2.53.0
 
