@@ -1,7 +1,7 @@
 From 448ba0acd5dbe43d1372d190d0e605c7ab31854b Mon Sep 17 00:00:00 2001
 From: honjow <honjow311@gmail.com>
 Date: Sun, 22 Feb 2026 09:36:55 +0800
-Subject: [PATCH 2/4] Add support for more handheld devices to fan detection
+Subject: [PATCH 2/5] Add support for more handheld devices to fan detection
 
 ---
  src/overlay.cpp | 12 +++++++++++-

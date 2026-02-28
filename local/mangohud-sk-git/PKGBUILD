@@ -51,12 +51,14 @@ source=(
     0002-Add-support-for-more-handheld-devices-to-fan-detecti.patch
     0003-amdgpu-add-cpu-temperature-fallback-for-gpu_metrics-.patch
 	0004-mangoapp-fix-busy-loop-causing-high-CPU-usage.patch
+	0005-mangoapp-always-use-full-screen-window-size-for-over.patch
     )
 sha256sums=('SKIP'
-            '80bbdcb33d5c5f6f7c63e3ebc851b1b7dfb4ce6a05d2c25a0fa2f71521e956e4'
-            'f850a59da9c234c2faa9e282df06479bc8b73c222ccb1692710456328cd667ba'
-            'a0f6ac9cd4e326379d9f41e5e6ba8af03a05019d66ef80c9382148516851f112'
-            'ed678c80bdbdcb6662271631ea55367ff7bd827323642836578b07c5c010b7a2')
+            '0afcf53f8a9baf5c46b182633254ff2f8533483739ca2ba2eced9c0b5e3f4335'
+            'c2c21985b22993a234eed1f0bbab154af27879d3fe03d7925d8db843a25b1f56'
+            'a39a0ec6d2a166d657d534a206c6c52cb44ea59af51aa7efeca959b329b5802e'
+            'a860faeb0c2816318f253802b9c07710189f67c11552af11f45e8be583f37653'
+            '5942c7f0e7e6bf3d8c82d938ea50c873c86eb49a222334b12bbcd5399426d85f')
 
 pkgver() {
     cd $_pkgname

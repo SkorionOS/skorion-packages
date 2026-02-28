@@ -1,7 +1,7 @@
 From 94dfc7ca0edd87f4d7d4f8c6c8432cfb867659c9 Mon Sep 17 00:00:00 2001
 From: honjow <honjow311@gmail.com>
 Date: Tue, 24 Feb 2026 21:06:06 +0800
-Subject: [PATCH 4/4] mangoapp: fix busy loop causing high CPU usage
+Subject: [PATCH 4/5] mangoapp: fix busy loop causing high CPU usage
 
 Restore condition variable wait and new_frame reset that were
 removed in a3b5683. Without them the main loop spins continuously,
