@@ -12,9 +12,9 @@ UUID_BAK="${INSTALL_DIR}/.uuplugin_uuid.bak"
 case "$1" in
     restore)
         mkdir -p /tmp/uu
-        [ -f "$UUID_BAK" ] && cp "$UUID_BAK" "$UUID_SRC"
+        [ -f "$UUID_BAK" ] && cp "$UUID_BAK" "$UUID_SRC" || true
         ;;
     backup)
-        [ -f "$UUID_SRC" ] && cp "$UUID_SRC" "$UUID_BAK"
+        [ -f "$UUID_SRC" ] && cp "$UUID_SRC" "$UUID_BAK" || true
         ;;
 esac
