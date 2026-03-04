@@ -1,7 +1,7 @@
 # Maintainer: SkorionOS
 pkgname=uu-uuid-persist
 pkgver=1.0.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Persist UU accelerator device UUID across reboots via systemd drop-in and path unit"
 arch=('any')
 url="https://github.com/SkorionOS/SkorionOS"
@@ -13,7 +13,7 @@ source=(
     'uuplugin-uuid-sync.path'
     'uuplugin-uuid-sync.service'
 )
-sha256sums=('af4e0355c463d34bd478646e3f81fe248e512a6ad3832e4ec7812e99dbf31153'
+sha256sums=('3866cbf0e114131b726dbb2e977fb7cb5841e9c259d7154200a6c1e5fc3c7745'
             '52d0695a7e37ea16a4d5ca33ea55eaadda92a858c6e1ff6a9a57b4bb68dab1dc'
             '7b33c57d6b2176c93ddc9d9617b5a6111b16e863db4069178782723195b561e3'
             'dbf5fcfc313665f1b92544b42cc4288d3823af22e9516e0f13e3cad52e290afc')
