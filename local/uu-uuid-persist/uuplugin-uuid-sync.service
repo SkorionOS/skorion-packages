@@ -1,0 +1,6 @@
+[Unit]
+Description=Backup UU Plugin UUID
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/uuplugin-uuid-helper.sh backup

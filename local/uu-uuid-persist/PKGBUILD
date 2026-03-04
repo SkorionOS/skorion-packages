@@ -1,0 +1,33 @@
+# Maintainer: SkorionOS
+pkgname=uu-uuid-persist
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Persist UU accelerator device UUID across reboots via systemd drop-in and path unit"
+arch=('any')
+url="https://github.com/SkorionOS/SkorionOS"
+license=('MIT')
+depends=('systemd')
+source=(
+    'uuplugin-uuid-helper.sh'
+    'uuid-persist.conf'
+    'uuplugin-uuid-sync.path'
+    'uuplugin-uuid-sync.service'
+)
+sha256sums=('af4e0355c463d34bd478646e3f81fe248e512a6ad3832e4ec7812e99dbf31153'
+            '52d0695a7e37ea16a4d5ca33ea55eaadda92a858c6e1ff6a9a57b4bb68dab1dc'
+            '7b33c57d6b2176c93ddc9d9617b5a6111b16e863db4069178782723195b561e3'
+            'dbf5fcfc313665f1b92544b42cc4288d3823af22e9516e0f13e3cad52e290afc')
+
+package() {
+    install -Dm755 "$srcdir/uuplugin-uuid-helper.sh" \
+        "$pkgdir/usr/local/bin/uuplugin-uuid-helper.sh"
+
+    install -Dm644 "$srcdir/uuid-persist.conf" \
+        "$pkgdir/etc/systemd/system/uuplugin.service.d/uuid-persist.conf"
+
+    install -Dm644 "$srcdir/uuplugin-uuid-sync.path" \
+        "$pkgdir/etc/systemd/system/uuplugin-uuid-sync.path"
+
+    install -Dm644 "$srcdir/uuplugin-uuid-sync.service" \
+        "$pkgdir/etc/systemd/system/uuplugin-uuid-sync.service"
+}

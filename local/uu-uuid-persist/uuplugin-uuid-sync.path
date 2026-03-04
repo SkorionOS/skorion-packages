@@ -1,0 +1,5 @@
+[Unit]
+Description=Watch UU Plugin UUID file
+
+[Path]
+PathModified=/tmp/uu/.uuplugin_uuid
