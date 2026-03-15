@@ -127,6 +127,21 @@ mkdir -p local/new-package
 # 编写 PKGBUILD...
 ```
 
+### 修补 AUR 包的 PKGBUILD
+
+当上游 AUR 包的 PKGBUILD 存在需要临时修正的问题（如依赖版本不匹配），可以通过 `pkgbuild-patches.conf` 定义查找替换规则，无需 fork 或本地化整个包：
+
+```
+# 格式：package_name|||search_string|||replace_string
+mesa-git|||libLLVM.so=21.1-64|||libLLVM.so=22-64
+```
+
+规则说明：
+- 分隔符为 `|||`（三竖线），避免与常见内容冲突
+- 注释行以 `#` 开头，空行忽略
+- 同一包可以有多条规则，按顺序逐条执行
+- 查找内容为**字面量字符串**，非正则表达式
+
 ### 固定包版本
 
 当某个 AUR 包需要固定版本时：

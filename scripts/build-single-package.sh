@@ -36,6 +36,22 @@ if [ "$PACKAGE_TYPE" = "aur" ]; then
     cd "$PACKAGE_NAME"
     git pull || true
     
+    # Apply PKGBUILD patches if defined
+    if [ -f "$GITHUB_WORKSPACE/pkgbuild-patches.conf" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            [[ "$line" =~ ^# ]] && continue
+            [[ -z "$line" ]] && continue
+            pkg_field="${line%%|||*}"
+            rest="${line#*|||}"
+            search="${rest%%|||*}"
+            replace="${rest#*|||}"
+            if [ "$pkg_field" = "$PACKAGE_NAME" ] && [ -n "$search" ]; then
+                echo "==> Patching PKGBUILD: '${search}' -> '${replace}'"
+                sed -i "s|${search}|${replace}|g" PKGBUILD
+            fi
+        done < "$GITHUB_WORKSPACE/pkgbuild-patches.conf"
+    fi
+
     # 检查是否需要 pin 到特定版本
     if [ -f "$GITHUB_WORKSPACE/aur-pinned.conf" ]; then
         PIN_COMMIT=$(grep "^${PACKAGE_NAME}=" "$GITHUB_WORKSPACE/aur-pinned.conf" | cut -d'=' -f2 || true)
