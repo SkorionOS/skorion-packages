@@ -1,0 +1,35 @@
+_pkgname=lenovo-legion-wmi-fan
+pkgname=$_pkgname-dkms-git
+pkgver=0.1.0.r0.g0ef019b
+pkgrel=1
+pkgdesc='Linux kernel driver for Lenovo Legion Go fan curve control via WMI'
+arch=('x86_64')
+url='https://github.com/honjow/lenovo-legion-go-wmi-fan'
+license=('MIT')
+depends=('dkms')
+makedepends=('git')
+source=("$_pkgname::git+https://github.com/honjow/lenovo-legion-go-wmi-fan.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$srcdir/$_pkgname"
+    git describe --long --tags --abbrev=7 2>/dev/null \
+        | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' \
+        || printf "0.1.0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+package() {
+    cd "$srcdir/$_pkgname"
+
+    local _dstdir="$pkgdir/usr/src/$_pkgname-$pkgver"
+
+    install -Dm644 lenovo-legion-wmi-fan.c "$_dstdir/lenovo-legion-wmi-fan.c"
+    install -Dm644 Makefile "$_dstdir/Makefile"
+    install -Dm644 dkms.conf "$_dstdir/dkms.conf"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+    sed -e "s/PACKAGE_VERSION=\"[^\"]*\"/PACKAGE_VERSION=\"$pkgver\"/" \
+        -i "$_dstdir/dkms.conf"
+}
+
+# vim:set et ts=2 sw=2 tw=79:
