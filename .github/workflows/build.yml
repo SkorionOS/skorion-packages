@@ -141,6 +141,7 @@ jobs:
           SKIP_PACKAGES: ${{ github.event.inputs.skip_packages || '' }}
           LOG_LEVEL: ${{ github.event.inputs.log_level || 'INFO' }}
           SRCDEST: /tmp/makepkg-cache
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # 清理可能存在的 git 锁文件，避免缓存冲突
           find /tmp/makepkg-cache -name "*.lock" -type f -delete 2>/dev/null || true
@@ -153,6 +154,7 @@ jobs:
             SKIP_PACKAGES="$SKIP_PACKAGES" \
             LOG_LEVEL="$LOG_LEVEL" \
             SRCDEST="$SRCDEST" \
+            GH_TOKEN="$GH_TOKEN" \
             bash scripts/check-updates.sh
       
       - name: List AUR packages to build

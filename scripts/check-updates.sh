@@ -23,6 +23,7 @@ LOCAL_OUTPUT_FILE="${LOCAL_OUTPUT_FILE:-updated-local-packages.txt}"
 FORCE_REBUILD="${FORCE_REBUILD:-}"
 SKIP_PACKAGES="${SKIP_PACKAGES:-}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARN, ERROR
+GH_TOKEN="${GH_TOKEN:-}"
 export LOG_LEVEL  # 导出供子进程使用
 
 # 并发检查配置
@@ -81,6 +82,13 @@ log_header() {
 
 export -f log_debug log_info log_warn log_error log_success log_header
 
+# GitHub API 认证 header（避免速率限制：未认证 60 次/h，认证 5000 次/h）
+GH_API_AUTH_ARGS=()
+if [ -n "$GH_TOKEN" ]; then
+    GH_API_AUTH_ARGS=(-H "Authorization: token $GH_TOKEN")
+    log_info "使用 GitHub Token 认证 API 请求"
+fi
+
 log_header "检测包更新"
 
 # 处理强制重建的包列表
@@ -126,23 +134,39 @@ RETRY_COUNT=0
 LATEST_JSON=""
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-  LATEST_JSON=$(curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" 2>/dev/null)
+  LATEST_JSON=$(curl -s "${GH_API_AUTH_ARGS[@]}" "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" 2>/dev/null)
   
   # 检查是否成功获取到有效的 JSON
-  if [ -n "$LATEST_JSON" ] && echo "$LATEST_JSON" | jq -e . >/dev/null 2>&1; then
-    log_success "下载 Release 信息成功"
-    break
-  else
+  if [ -z "$LATEST_JSON" ] || ! echo "$LATEST_JSON" | jq -e . >/dev/null 2>&1; then
     RETRY_COUNT=$((RETRY_COUNT + 1))
     if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-      WAIT_TIME=$((2 ** RETRY_COUNT))  # Exponential backoff: 2, 4, 8, 16, 32 seconds
-      log_warn "下载 Release 信息失败，${WAIT_TIME}秒后重试 ($RETRY_COUNT/$MAX_RETRIES)..."
+      WAIT_TIME=$((2 ** RETRY_COUNT))
+      log_warn "下载 Release 信息失败（无效响应），${WAIT_TIME}秒后重试 ($RETRY_COUNT/$MAX_RETRIES)..."
       sleep $WAIT_TIME
     else
-      log_warn "下载 Release 信息失败，达到最大重试次数 ($MAX_RETRIES)，将视为首次构建"
-      LATEST_JSON="{}"
+      log_error "下载 Release 信息失败，达到最大重试次数 ($MAX_RETRIES)"
+      exit 1
     fi
+    continue
   fi
+
+  # 检查 API 错误响应（限流、认证失败等）
+  api_message=$(echo "$LATEST_JSON" | jq -r '.message // empty' 2>/dev/null)
+  if [ -n "$api_message" ] && [ "$api_message" != "Not Found" ]; then
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+      WAIT_TIME=$((2 ** RETRY_COUNT))
+      log_warn "GitHub API 错误: $api_message，${WAIT_TIME}秒后重试 ($RETRY_COUNT/$MAX_RETRIES)..."
+      sleep $WAIT_TIME
+    else
+      log_error "GitHub API 持续报错: $api_message，达到最大重试次数 ($MAX_RETRIES)"
+      exit 1
+    fi
+    continue
+  fi
+
+  log_success "下载 Release 信息成功"
+  break
 done
 
 # 检查是否是首次构建
@@ -159,10 +183,34 @@ if [ "$FIRST_BUILD" = false ]; then
     echo "==> 从 Release Assets 解析包版本"
     
     # 获取所有 .pkg.tar.zst 文件名
+    # 先检查 assets 字段是否存在且为数组
+    total_assets_count=$(echo "$LATEST_JSON" | jq '.assets | length' 2>/dev/null || echo "0")
+    
+    if [ "$total_assets_count" = "0" ] || [ "$total_assets_count" = "null" ]; then
+        # assets 为空或不存在，可能是 API 响应不完整，尝试重新获取
+        log_warn "Release assets 为空（共 $total_assets_count 个），尝试重新获取..."
+        ASSET_RETRY=0
+        ASSET_MAX_RETRIES=3
+        while [ $ASSET_RETRY -lt $ASSET_MAX_RETRIES ]; do
+            sleep $((2 ** (ASSET_RETRY + 1)))
+            LATEST_JSON=$(curl -s "${GH_API_AUTH_ARGS[@]}" "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" 2>/dev/null)
+            total_assets_count=$(echo "$LATEST_JSON" | jq '.assets | length' 2>/dev/null || echo "0")
+            if [ "$total_assets_count" != "0" ] && [ "$total_assets_count" != "null" ]; then
+                log_success "重新获取成功，共 $total_assets_count 个 assets"
+                break
+            fi
+            ((ASSET_RETRY += 1))
+            log_warn "重试 $ASSET_RETRY/$ASSET_MAX_RETRIES..."
+        done
+    fi
+    
     ASSET_PACKAGES=$(echo "$LATEST_JSON" | jq -r '.assets[]? | select(.name | endswith(".pkg.tar.zst")) | .name' 2>/dev/null || echo "")
     
     if [ -z "$ASSET_PACKAGES" ]; then
-        echo "==> 警告: Release 中没有包文件"
+        echo "==> 警告: Release 中没有包文件（assets 总数: $total_assets_count）"
+        if [ "$total_assets_count" != "0" ] && [ "$total_assets_count" != "null" ]; then
+            log_warn "Release 有 $total_assets_count 个 assets 但没有 .pkg.tar.zst 文件，视为首次构建"
+        fi
         FIRST_BUILD=true
     else
         # 计数器和总数
