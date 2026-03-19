@@ -44,6 +44,12 @@ if [[ "$PACKAGE_NAME" == "sk-chos-tool" || "$PACKAGE_NAME" == "sk-chos-addon" ]]
   DEPENDENCIES_PACKAGES+=" fpaste refind-r"
 fi
 
+if [[ "$PACKAGE_NAME" == "chimeraos-device-quirks-sk" ]]; then
+  echo "  → Adding skorion repository"
+  sed -i '/^\[core\]/i [skorion]\nSigLevel = Optional TrustAll\nServer = https://github.com/SkorionOS/skorion-packages/releases/download/latest\n' /etc/pacman.conf
+  DEPENDENCIES_PACKAGES+=" bankstown"
+fi
+
 pacman-key --init
 pacman-key --populate archlinux
 pacman -Sy
