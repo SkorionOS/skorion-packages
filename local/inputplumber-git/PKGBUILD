@@ -1,7 +1,7 @@
 # Maintainer: William Edwards <shadowapex@gmail.com>
 pkgname=inputplumber-git
 _pkgbase=inputplumber
-pkgver=v0.75.2.r10.g124eb09
+pkgver=v0.75.2.r11.g0fdd0dd
 pkgrel=1
 pkgdesc="Open source input router and remapper daemon for Linux"
 arch=('x86_64')
@@ -12,6 +12,7 @@ makedepends=('rust' 'make' 'cmake' 'clang' 'git')
 provides=('inputplumber')
 conflicts=('inputplumber-bin')
 _branch=dev
+# _branch=feat/oxp_apex
 source=("${_pkgbase}::git+https://github.com/honjow/${_pkgbase}.git#branch=${_branch}")
 options=(!lto)
 
