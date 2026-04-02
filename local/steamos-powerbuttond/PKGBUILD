@@ -2,7 +2,7 @@
 # Maintainer: Eric Naim <dnaim@cachyos.org>
 
 pkgname=steamos-powerbuttond
-pkgver=4.0
+pkgver=4.2
 pkgrel=1
 arch=('x86_64')
 url="https://gitlab.steamos.cloud/jupiter/powerbuttond"
@@ -13,8 +13,9 @@ makedepends=('git')
 source=("git+https://gitlab.steamos.cloud/holo/powerbuttond.git#tag=v${pkgver}"
         "support-gamescope-session-plus.patch"
         )
-sha512sums=('d435dca77621d9ec43eb5aebb36b908c7e4afdc9c446cdbfdef6dfbe16df1599e22d4de2aa8e7810ccca585cbb1b7ac07c4db44dd6fb00e8c31de3fcc39993b8'
+sha512sums=('95bd9ce60bfa8525558af47733cc9d4496477f3fe543629728dc1264a0da29b1577cc84dbd3182ddef436b20994d5a814ef80e05694fb96f9b94e7bd970471a7'
             'cefc1a0270b0a5aede1091726274cd739cc17c3a6ae5a7ff74981985298b538dc1aae475ca374169ed2afd3d7c3e8d4bae5f002df950afe50a41b5ba3b8fe69f')
+
 provides=("powerbuttond")
 conflicts=("powerbuttond")
 replaces=("powerbuttond")
