@@ -1,0 +1,111 @@
+From 0bb9762238070712414ddbee639a7784e37d4b88 Mon Sep 17 00:00:00 2001
+From: honjow <honjow311@gmail.com>
+Date: Thu, 2 Apr 2026 09:43:49 +0800
+Subject: [PATCH] fix: resolve poll busy-loop, fd/memory leaks, and signal
+ safety issues
+
+- Detect stale device FDs on either POLLERR or POLLHUP (not both)
+- Close fd in open_dev when device lacks required capabilities
+- Add missing udev_device_unref for ignored devices
+- Use volatile sig_atomic_t for signal handler variables
+- Re-enumerate devices on libevdev read errors (e.g. -ENODEV)
+- Guard against NULL HOME environment variable in steam_message
+---
+ powerbuttond.c | 30 ++++++++++++++++++++----------
+ 1 file changed, 20 insertions(+), 10 deletions(-)
+
+diff --git a/powerbuttond.c b/powerbuttond.c
+index 5361506..67a15a7 100644
+--- a/powerbuttond.c
++++ b/powerbuttond.c
+@@ -33,20 +33,22 @@
+ #define MOD_META 0xC0
+ 
+ extern char** environ;
+-static bool got_alarm = false;
+-static bool got_hup = false;
++static volatile sig_atomic_t got_alarm = 0;
++static volatile sig_atomic_t got_hup = 0;
+ 
+ struct evdev_context {
+ 	struct libevdev* dev;
+ 	int modifiers;
+ };
+ 
+-void alarm_handler(int) {
+-	got_alarm = true;
++void alarm_handler(int sig) {
++	(void)sig;
++	got_alarm = 1;
+ }
+ 
+-void hup_handler(int) {
+-	got_hup = true;
++void hup_handler(int sig) {
++	(void)sig;
++	got_hup = 1;
+ }
+ 
+ bool open_dev(const char* path, struct evdev_context* ctx) {
+@@ -64,6 +66,7 @@ bool open_dev(const char* path, struct evdev_context* ctx) {
+ 	bool has_lid = libevdev_has_event_code(dev, EV_SW, SW_LID);
+ 	if (!has_meta && !has_power && !has_lid) {
+ 		libevdev_free(dev);
++		close(fd);
+ 		return false;
+ 	}
+ 	ctx->dev = dev;
+@@ -106,6 +109,7 @@ size_t find_devs(struct evdev_context* devs) {
+ 			continue;
+ 		}
+ 		if (udev_device_get_property_value(dev, "STEAMOS_POWER_BUTTON_IGNORE")) {
++			udev_device_unref(dev);
+ 			continue;
+ 		}
+ 		const char* devpath = udev_device_get_devnode(dev);
+@@ -134,8 +138,11 @@ void steam_message(const char* type) {
+ 	char* const args[] = {steam, "-ifrunning", message, NULL};
+ 
+ 	alarm(0);
+-	got_alarm = false;
++	got_alarm = 0;
+ 
++	if (!home) {
++		return;
++	}
+ 	snprintf(steam, sizeof(steam), "%s/.steam/root/ubuntu12_32/steam", home);
+ 	snprintf(message, sizeof(message), "steam://%s", type);
+ 
+@@ -201,7 +208,7 @@ int main(int argc, char* argv[]) {
+ 	bool press_active = false;
+ 	while (true) {
+ 		if (got_hup) {
+-			got_hup = false;
++			got_hup = 0;
+ 			close_devs(devs, num_devs);
+ 			num_devs = find_devs(devs);
+ 			if (!num_devs) {
+@@ -224,8 +231,8 @@ int main(int argc, char* argv[]) {
+ 
+ 		for (i = 0; i < num_devs; ++i) {
+ 			struct evdev_context* ctx = &devs[i];
+-			if ((pfds[i].revents & (POLLERR | POLLHUP)) == (POLLERR | POLLHUP)) {
+-				got_hup = true;
++			if (pfds[i].revents & (POLLERR | POLLHUP)) {
++				got_hup = 1;
+ 				break;
+ 			}
+ 			if (!(pfds[i].revents & POLLIN)) {
+@@ -320,6 +327,9 @@ int main(int argc, char* argv[]) {
+ 				} else if (got_hup) {
+ 					break;
+ 				}
++			} else if (res < 0) {
++				got_hup = 1;
++				break;
+ 			}
+ 		}
+ 	}
+-- 
+2.51.2
+

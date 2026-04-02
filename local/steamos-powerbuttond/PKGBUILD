@@ -3,7 +3,7 @@
 
 pkgname=steamos-powerbuttond
 pkgver=4.2
-pkgrel=1
+pkgrel=2
 arch=('x86_64')
 url="https://gitlab.steamos.cloud/jupiter/powerbuttond"
 pkgdesc="Power button daemon"
@@ -11,10 +11,12 @@ license=('BSD-2-Clause')
 depends=('glibc' 'libevdev' 'systemd-libs')
 makedepends=('git')
 source=("git+https://gitlab.steamos.cloud/holo/powerbuttond.git#tag=v${pkgver}"
-        "support-gamescope-session-plus.patch"
+        "0001-fix-resolve-poll-busy-loop.patch"
+        "0002-support-gamescope-session-plus.patch"
         )
-sha512sums=('95bd9ce60bfa8525558af47733cc9d4496477f3fe543629728dc1264a0da29b1577cc84dbd3182ddef436b20994d5a814ef80e05694fb96f9b94e7bd970471a7'
-            'cefc1a0270b0a5aede1091726274cd739cc17c3a6ae5a7ff74981985298b538dc1aae475ca374169ed2afd3d7c3e8d4bae5f002df950afe50a41b5ba3b8fe69f')
+sha256sums=('4f8f7d1268dafc2c098ad8e425a383d8f473c8523ac3545c4bf427867b8cb61f'
+            '486a0d1e88d67c025975093b7f7ca4514ec706faad20fcc2f0756d5a047c9a34'
+            '83a004ae62441f88788c52f5b4bbb4064d0faf6f2049711cc63e9b8739af61ab')
 
 provides=("powerbuttond")
 conflicts=("powerbuttond")
@@ -23,8 +25,14 @@ replaces=("powerbuttond")
 prepare() {
     cd "${srcdir}/powerbuttond"
 
-    # Support gamescope-session-plus
-    patch -Np1 -i ../support-gamescope-session-plus.patch
+    local src
+    for src in "${source[@]}"; do
+      src="${src%%::*}"
+      src="${src##*/}"
+      [[ $src = *.patch ]] || continue
+      echo "Applying patch $src..."
+      patch -Np1 < "../$src"
+    done
 }
 
 build() {
