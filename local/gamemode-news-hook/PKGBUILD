@@ -1,7 +1,7 @@
 # Maintainer: honjow
 # shellcheck disable=SC2034
 pkgname=gamemode-news-hook
-pkgver=1.0.2
+pkgver=1.0.3
 pkgrel=1
 pkgdesc="Replace Steam Game Mode update cards with community group announcements"
 arch=('any')
