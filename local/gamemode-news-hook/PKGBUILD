@@ -8,6 +8,8 @@ arch=('any')
 url="https://github.com/honjow/gamemode-news-hook"
 license=('MIT')
 depends=('python')
+optdepends=('python-systemd: systemd journal logging')
+backup=('etc/gamemode-news-hook.conf')
 source=("$pkgname-$pkgver.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=('SKIP')
 options=(!strip)
@@ -18,6 +20,9 @@ package() {
     # entry script
     install -Dm755 "${source_dir}/gamemode-news-hook" "${pkgdir}/usr/bin/gamemode-news-hook"
 
+    # config
+    install -Dm644 "${source_dir}/gamemode-news-hook.conf" "${pkgdir}/etc/gamemode-news-hook.conf"
+
     # lib
     install -dm755 "${pkgdir}/usr/lib/gamemode-news-hook"
     install -m644 -t "${pkgdir}/usr/lib/gamemode-news-hook" "${source_dir}/lib"/*.py
@@ -25,7 +30,7 @@ package() {
     install -dm755 "${pkgdir}/usr/lib/gamemode-news-hook/js"
     install -m644 -t "${pkgdir}/usr/lib/gamemode-news-hook/js" "${source_dir}/lib/js"/*.js
 
-    # systemd drop-in for gamescope-session-plus
-    install -Dm644 "${source_dir}/systemd/gamemode-news-hook.conf" \
-        "${pkgdir}/usr/lib/systemd/user/gamescope-session-plus@.service.d/gamemode-news-hook.conf"
+    # systemd user service
+    install -Dm644 "${source_dir}/systemd/gamemode-news-hook.service" \
+        "${pkgdir}/usr/lib/systemd/user/gamemode-news-hook.service"
 }
