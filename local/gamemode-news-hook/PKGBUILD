@@ -1,0 +1,31 @@
+# Maintainer: honjow
+# shellcheck disable=SC2034
+pkgname=gamemode-news-hook
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Replace Steam Game Mode update cards with community group announcements"
+arch=('any')
+url="https://github.com/honjow/gamemode-news-hook"
+license=('MIT')
+depends=('python')
+source=("$pkgname-$pkgver.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('6e8487f8a52faf0e04ed21720d56558186343a60c1a567dde20fe036e83a9e5a')
+options=(!strip)
+
+package() {
+    local source_dir="${srcdir}/${pkgname}-${pkgver}/src"
+
+    # entry script
+    install -Dm755 "${source_dir}/gamemode-news-hook" "${pkgdir}/usr/bin/gamemode-news-hook"
+
+    # lib
+    install -dm755 "${pkgdir}/usr/lib/gamemode-news-hook"
+    install -m644 -t "${pkgdir}/usr/lib/gamemode-news-hook" "${source_dir}/lib"/*.py
+
+    install -dm755 "${pkgdir}/usr/lib/gamemode-news-hook/js"
+    install -m644 -t "${pkgdir}/usr/lib/gamemode-news-hook/js" "${source_dir}/lib/js"/*.js
+
+    # systemd drop-in for gamescope-session-plus
+    install -Dm644 "${source_dir}/systemd/gamemode-news-hook.conf" \
+        "${pkgdir}/usr/lib/systemd/user/gamescope-session-plus@.service.d/gamemode-news-hook.conf"
+}
