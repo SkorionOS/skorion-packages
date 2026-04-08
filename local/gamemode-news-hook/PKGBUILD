@@ -1,7 +1,7 @@
 # Maintainer: honjow
 # shellcheck disable=SC2034
 pkgname=gamemode-news-hook
-pkgver=1.2.0
+pkgver=1.2.1
 pkgrel=1
 pkgdesc="Replace Steam Game Mode update cards with community group announcements"
 arch=('any')
@@ -13,7 +13,7 @@ backup=('etc/gamemode-news-hook.conf')
 source=("$pkgname-$pkgver.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
     	0001-feat-add-repository-mirror.patch
 )
-sha256sums=('3f93c385f45802333930f63c2325dcfe2b9ec224cfb36e6f4e66ac748dc7d205'
+sha256sums=('715ca108b27af352d5d01f52c8eb094f8803527f370731fb1902c877927506b1'
             'e97b3f2d7b44d79742122a77f53fb25a01fd3975ac097d090266b452edcec08b')
 
 options=(!strip)
