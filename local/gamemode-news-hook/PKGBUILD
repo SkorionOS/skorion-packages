@@ -1,7 +1,7 @@
 # Maintainer: honjow
 # shellcheck disable=SC2034
 pkgname=gamemode-news-hook
-pkgver=1.1.2
+pkgver=1.2.0
 pkgrel=1
 pkgdesc="Replace Steam Game Mode update cards with community group announcements"
 arch=('any')
@@ -10,9 +10,23 @@ license=('MIT')
 depends=('python')
 optdepends=('python-systemd: systemd journal logging')
 backup=('etc/gamemode-news-hook.conf')
-source=("$pkgname-$pkgver.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+source=("$pkgname-$pkgver.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
+    	0001-feat-add-repository-mirror.patch
+)
+sha256sums=('3f93c385f45802333930f63c2325dcfe2b9ec224cfb36e6f4e66ac748dc7d205'
+            'e97b3f2d7b44d79742122a77f53fb25a01fd3975ac097d090266b452edcec08b')
+
 options=(!strip)
+
+prepare() {
+    cd ${srcdir}/${pkgname}-${pkgver}
+
+    local src
+    for src in "${source[@]}"; do
+        [[ $src = *.patch ]] || continue
+        patch -p1 < "${srcdir}"/$src
+    done
+}
 
 package() {
     local source_dir="${srcdir}/${pkgname}-${pkgver}/src"
