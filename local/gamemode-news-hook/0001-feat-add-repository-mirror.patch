@@ -1,24 +1,23 @@
-From 2196f509f021436f604c30baa117b46fd6ae2731 Mon Sep 17 00:00:00 2001
+From 5c300c49d04eff9670c38754c81cfc03b261a722 Mon Sep 17 00:00:00 2001
 From: honjow <honjow311@gmail.com>
-Date: Thu, 9 Apr 2026 01:38:22 +0800
+Date: Thu, 9 Apr 2026 20:30:37 +0800
 Subject: [PATCH] feat: add repository mirror
 
 ---
- src/gamemode-news-hook.conf | 3 ++-
- 1 file changed, 2 insertions(+), 1 deletion(-)
+ src/gamemode-news-hook.conf | 2 ++
+ 1 file changed, 2 insertions(+)
 
 diff --git a/src/gamemode-news-hook.conf b/src/gamemode-news-hook.conf
-index a17bf9a..5f68f3b 100644
+index 17f0c16..df65377 100644
 --- a/src/gamemode-news-hook.conf
 +++ b/src/gamemode-news-hook.conf
-@@ -72,5 +72,6 @@ schinese = 46069703
+@@ -16,4 +16,6 @@ monitor_interval = 5
  # Raw URLs for announcements.json, tried in order (mirror first).
  # announcements.json 的 raw URL，按顺序尝试（镜像优先）。
  [repo_mirrors]
--# gitee = https://gitee.com/honjow/gamemode-news/raw/master/announcements.json
 +gitee = https://gitee.com/honjow/gamemode-news/raw/main/announcements.json
 +gitea = https://gitea.switchsystem.eu.org/honjow/gamemode-news/raw/branch/main/announcements.json
  github = https://raw.githubusercontent.com/SkorionOS/gamemode-news/master/announcements.json
 -- 
-2.53.0
+2.51.2
 
