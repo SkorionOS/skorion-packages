@@ -18,6 +18,8 @@ jobs:
   cleanup:
     name: Clean Duplicate Packages
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
     permissions:
       contents: write
     
@@ -26,10 +28,9 @@ jobs:
       
       - name: Install dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y jq curl
-          
-          echo "使用 sort -V 进行版本比较（已验证可正确处理所有版本格式）"
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm pacman-contrib curl jq python nodejs
+          echo "依赖已安装（含 nodejs：供 gh-release 等 JS action 在容器内运行）"
       
       - name: Detect duplicate versions
         id: detect
@@ -63,6 +64,39 @@ jobs:
           else
             echo "has_duplicates=false" >> $GITHUB_OUTPUT
           fi
+      
+      # 与 build-packages 中的「获取锁 → 更新 DB → 释放锁」互斥，避免删包/全量重建 DB 与增量 repo-add 交错
+      # 仅针对 latest：主 CI 只向该 tag 上传 skorion.db；清理其它 release 时不应占用此锁以免阻塞构建
+      - name: Acquire database lock
+        id: lock
+        if: steps.detect.outputs.has_duplicates == 'true' && inputs.dry_run == false && inputs.release_tag == 'latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "==> 尝试获取数据库锁 (refs/locks/database)"
+          MAX_RETRIES=60
+          RETRY_COUNT=0
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            RESPONSE=$(curl -s -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/git/refs" \
+              -d "{\"ref\": \"refs/locks/database\", \"sha\": \"${{ github.sha }}\"}")
+            if echo "$RESPONSE" | jq -e '.object' >/dev/null 2>&1; then
+              echo "✓ 获取锁成功"
+              echo "locked=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif echo "$RESPONSE" | grep -q "already exists"; then
+              echo "锁被占用，等待中... ($((RETRY_COUNT+1))/$MAX_RETRIES)"
+              sleep 5
+              RETRY_COUNT=$((RETRY_COUNT+1))
+            else
+              echo "❌ 创建锁失败: $RESPONSE"
+              exit 1
+            fi
+          done
+          echo "❌ 获取锁超时，请等待正在进行的构建/数据库更新结束后再运行本 workflow"
+          exit 1
       
       - name: Clean duplicates
         if: steps.detect.outputs.has_duplicates == 'true' && inputs.dry_run == false
@@ -101,6 +135,77 @@ jobs:
             echo ""
             echo "请检查清理脚本或手动删除这些重复版本"
             exit 1
+          fi
+      
+      # 删除重复包后，旧数据库仍引用已删除的 asset；必须按当前包列表完整重建并上传
+      - name: Download all packages for database rebuild
+        if: steps.detect.outputs.has_duplicates == 'true' && inputs.dry_run == false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_FULL: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          echo "==> 下载 ${RELEASE_TAG} release 中的全部包以重建数据库"
+          mkdir -p output
+          REL_JSON=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${REPO_FULL}/releases/tags/${RELEASE_TAG}")
+          if echo "$REL_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
+            echo "❌ release 不存在: ${RELEASE_TAG}"
+            exit 1
+          fi
+          echo "$REL_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read -r url; do
+            [ -z "$url" ] && continue
+            filename=$(basename "$url")
+            filename=$(python -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
+            echo "  下载 $filename"
+            curl -sL "$url" -o "output/$filename"
+          done
+          pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
+          echo "==> 共 $pkg_count 个包"
+          if [ "$pkg_count" -eq 0 ]; then
+            echo "❌ 没有可生成数据库的包文件"
+            exit 1
+          fi
+      
+      - name: Rebuild repository database
+        if: steps.detect.outputs.has_duplicates == 'true' && inputs.dry_run == false
+        env:
+          OUTPUT_DIR: ./output
+        run: |
+          echo "==> 完整重建 pacman 数据库（移除旧库，避免 repo-add 增量模式保留已删包条目）"
+          rm -f output/skorion.db output/skorion.db.tar.gz output/skorion.files output/skorion.files.tar.gz
+          bash scripts/generate-repo.sh
+      
+      - name: Upload rebuilt database to release
+        if: steps.detect.outputs.has_duplicates == 'true' && inputs.dry_run == false
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: |
+            output/skorion.db.tar.gz
+            output/skorion.files.tar.gz
+            output/skorion.db
+            output/skorion.files
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Release database lock
+        if: always() && steps.lock.outputs.locked == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "==> 释放数据库锁"
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X DELETE \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/locks/database")
+          if [ "$HTTP_CODE" = "204" ]; then
+            echo "✓ 锁释放成功"
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "⚠ 锁不存在（可能已被其它任务删除）"
+          else
+            echo "⚠ 释放锁失败 (HTTP $HTTP_CODE)"
           fi
       
       - name: Dry run summary
