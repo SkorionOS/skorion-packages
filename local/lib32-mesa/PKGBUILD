@@ -22,7 +22,7 @@ pkgname=(
 )
 # pkgver=25.3.0
 # _pkgver=${pkgver/[a-z]/-&}
-_pkgver=26.0.4
+_pkgver=26.1.0-rc1
 pkgver=${_pkgver//-/.}.sk
 pkgrel=1
 epoch=1
