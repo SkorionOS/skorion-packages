@@ -1,0 +1,68 @@
+# Maintainer: Tobias Powalowski <tpowa@archlinux.org>
+# Contributor: GreyXor <greyxor@protonmail.com>
+# Contributor: Kyle Keen <keenerd@gmail.com>
+# Contributor: Chris Tam <lchris314 at gmail dot com>
+# Contributor: Daniel Micay <danielmicay at gmail dotcom>
+# Contributor: David Herrmann <dh.herrmann@googlemail dot com>
+
+pkgname=kmscon
+pkgver=9.3.4
+pkgrel=1
+pkgdesc='Kernel Mode Setting (KMS) and DRM based virtual Console Emulator'
+arch=('x86_64')
+url='https://github.com/kmscon/kmscon'
+license=('MIT')
+backup=('etc/kmscon/kmscon.conf')
+depends=(
+  bash
+  glib2
+  glibc
+  libdrm
+  libtsm
+  libxkbcommon
+  systemd-libs
+  zlib
+)
+makedepends=(
+  check
+  docbook-xsl
+  freetype2
+  git
+  libxslt
+  linux-api-headers
+  libglvnd
+  meson
+  pango
+)
+optdepends=(
+  'fontconfig: for freetype font rendering'
+  'inotify-tools: for kmscon-launch-gui waiting mechanism'
+  'libglvnd: for accelerated video output'
+  'pango: for pango font rendering'
+)
+source=(
+  git+${url}.git#tag=v${pkgver}
+  "0001-auto-detect-panel-orientation.patch"
+)
+sha256sums=('90b5a795c4d3f3407941d9fb6ada0e9450a7962312b8903137938c45973f4c71'
+            'dbf7ecc65ddfd96a3d9b4052eac7d0d82b008ff03927cecb73ce53cfc49d5b0a')
+
+prepare() {
+    cd ${srcdir}/${pkgname}
+
+    local src
+    for src in "${source[@]}"; do
+        [[ $src = *.patch ]] || continue
+        patch -p1 < "${srcdir}"/$src
+    done
+}
+
+build() {
+  arch-meson "$pkgname" build
+  meson compile -C build
+}
+
+package() {
+  meson install -C build --destdir="$pkgdir"
+  install -Dm644 $pkgname/COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+}
