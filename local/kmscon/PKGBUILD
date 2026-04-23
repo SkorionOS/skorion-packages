@@ -6,7 +6,7 @@
 # Contributor: David Herrmann <dh.herrmann@googlemail dot com>
 
 pkgname=kmscon
-pkgver=9.3.4
+pkgver=9.3.3
 pkgrel=1
 pkgdesc='Kernel Mode Setting (KMS) and DRM based virtual Console Emulator'
 arch=('x86_64')
@@ -44,8 +44,8 @@ source=(
   git+${url}.git#tag=v${pkgver}
   "0001-auto-detect-panel-orientation.patch"
 )
-sha256sums=('90b5a795c4d3f3407941d9fb6ada0e9450a7962312b8903137938c45973f4c71'
-            'dbf7ecc65ddfd96a3d9b4052eac7d0d82b008ff03927cecb73ce53cfc49d5b0a')
+sha256sums=('5f7622b954416c5cc1ecdc69597c240a1b32fb0102a3d41264c981e327e931eb'
+            '60fb0838a043f32e86714f26f31a3c2f270de1239ae45efed00b904b8434f939')
 
 prepare() {
     cd ${srcdir}/${pkgname}

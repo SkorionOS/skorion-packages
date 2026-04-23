@@ -1,8 +1,8 @@
-From dc1ae188ef99aeec80edb28b09af9808e5b38eff Mon Sep 17 00:00:00 2001
+From 75a77468b634c3801ba203ed862501c35939d899 Mon Sep 17 00:00:00 2001
 From: honjow <honjow311@gmail.com>
 Date: Thu, 23 Apr 2026 16:24:37 +0800
-Subject: [PATCH 1/2] drm: auto-detect panel orientation and keep plane
- rotation off
+Subject: [PATCH] drm: auto-detect panel orientation and keep plane rotation
+ off
 
 Read the kernel "panel orientation" connector property when binding a
 DRM display, store it on uterm_display, and combine it with the
@@ -38,7 +38,7 @@ Changes:
  7 files changed, 162 insertions(+)
 
 diff --git a/src/text.c b/src/text.c
-index 6e235eb..791375d 100644
+index 5f17be5..5ab692f 100644
 --- a/src/text.c
 +++ b/src/text.c
 @@ -122,6 +122,7 @@ static int new_text(struct kmscon_text *text, const char *backend, enum Orientat
@@ -97,7 +97,7 @@ index 6e235eb..791375d 100644
  	if (txt->ops->set) {
  		ret = txt->ops->set(txt);
  		if (ret) {
-@@ -392,6 +417,15 @@ enum Orientation kmscon_text_get_orientation(struct kmscon_text *txt)
+@@ -373,6 +398,15 @@ enum Orientation kmscon_text_get_orientation(struct kmscon_text *txt)
   */
  int kmscon_text_rotate(struct kmscon_text *txt, enum Orientation orientation)
  {
@@ -114,13 +114,13 @@ index 6e235eb..791375d 100644
  		return txt->ops->rotate(txt, orientation);
  	return 0;
 diff --git a/src/text.h b/src/text.h
-index e20dc64..cca7a36 100644
+index be31244..650ec6f 100644
 --- a/src/text.h
 +++ b/src/text.h
-@@ -65,7 +65,13 @@ struct kmscon_text {
- 	unsigned int max_cols;
- 	unsigned int max_rows;
+@@ -64,7 +64,13 @@ struct kmscon_text {
+ 	unsigned int rows;
  	bool rendering;
+ 	bool overflow_next;
 +	/* effective orientation actually used for rendering: combination of
 +	 * the user-requested orientation and the display's panel orientation
 +	 * correction. Backends should always read this. */
@@ -132,10 +132,10 @@ index e20dc64..cca7a36 100644
  
  struct kmscon_text_ops {
 diff --git a/src/uterm_drm_shared.c b/src/uterm_drm_shared.c
-index a53d81e..13977ca 100644
+index 7df2078..62717b6 100644
 --- a/src/uterm_drm_shared.c
 +++ b/src/uterm_drm_shared.c
-@@ -142,6 +142,30 @@ static int set_drm_object_property(drmModeAtomicReq *req, struct drm_object *obj
+@@ -135,6 +135,30 @@ static int set_drm_object_property(drmModeAtomicReq *req, struct drm_object *obj
  	return drmModeAtomicAddProperty(req, obj->id, prop_id, value);
  }
  
@@ -166,7 +166,7 @@ index a53d81e..13977ca 100644
  static bool is_crtc_in_use(struct uterm_video *video, uint32_t crtc_id)
  {
  	struct shl_dlist *iter;
-@@ -621,6 +645,20 @@ int uterm_drm_prepare_commit(int fd, struct uterm_drm_display *ddrm, drmModeAtom
+@@ -410,6 +434,20 @@ int uterm_drm_prepare_commit(int fd, struct uterm_drm_display *ddrm, drmModeAtom
  	if (set_drm_object_property(req, plane, "CRTC_H", height) < 0)
  		return -1;
  
@@ -187,7 +187,7 @@ index a53d81e..13977ca 100644
  	if (ddrm->damage_blob_id) {
  		if (set_drm_object_property(req, plane, "FB_DAMAGE_CLIPS", ddrm->damage_blob_id) <
  		    0) {
-@@ -1338,6 +1376,60 @@ static bool is_mode_null(drmModeModeInfoPtr mode)
+@@ -1078,6 +1116,60 @@ static bool is_mode_null(drmModeModeInfoPtr mode)
  	return mode->hdisplay == 0;
  }
  
@@ -248,7 +248,7 @@ index a53d81e..13977ca 100644
  static void init_modes(struct uterm_display *disp, drmModeConnector *conn)
  {
  	struct uterm_video *video = disp->video;
-@@ -1402,6 +1494,7 @@ static void bind_display(struct uterm_video *video, drmModeRes *res, drmModeConn
+@@ -1142,6 +1234,7 @@ static void bind_display(struct uterm_video *video, drmModeRes *res, drmModeConn
  
  	ddrm->connector.id = conn->connector_id;
  	disp->dpms = uterm_drm_get_dpms(vdrm->fd, conn);
@@ -257,7 +257,7 @@ index a53d81e..13977ca 100644
  
  	/* find a crtc for this connector */
 diff --git a/src/uterm_video.c b/src/uterm_video.c
-index 56777fd..434190a 100644
+index 1f95056..6db9676 100644
 --- a/src/uterm_video.c
 +++ b/src/uterm_video.c
 @@ -244,6 +244,15 @@ unsigned int uterm_display_get_height(struct uterm_display *disp)
@@ -277,7 +277,7 @@ index 56777fd..434190a 100644
  int uterm_display_get_state(struct uterm_display *disp)
  {
 diff --git a/src/uterm_video.h b/src/uterm_video.h
-index 18973ad..60bf1c4 100644
+index 4e8a2ae..7d64607 100644
 --- a/src/uterm_video.h
 +++ b/src/uterm_video.h
 @@ -83,6 +83,18 @@ enum uterm_video_action {
@@ -299,7 +299,7 @@ index 18973ad..60bf1c4 100644
  struct uterm_video_hotplug {
  	struct uterm_display *display;
  	int action;
-@@ -150,6 +162,7 @@ void uterm_display_unregister_cb(struct uterm_display *disp, uterm_display_cb cb
+@@ -158,6 +170,7 @@ void uterm_display_unregister_cb(struct uterm_display *disp, uterm_display_cb cb
  
  unsigned int uterm_display_get_width(struct uterm_display *disp);
  unsigned int uterm_display_get_height(struct uterm_display *disp);
@@ -308,10 +308,10 @@ index 18973ad..60bf1c4 100644
  int uterm_display_set_dpms(struct uterm_display *disp, int state);
  int uterm_display_get_dpms(const struct uterm_display *disp);
 diff --git a/src/uterm_video_internal.h b/src/uterm_video_internal.h
-index 5903856..b597527 100644
+index 96854b4..0eb6e2f 100644
 --- a/src/uterm_video_internal.h
 +++ b/src/uterm_video_internal.h
-@@ -97,6 +97,7 @@ struct uterm_display {
+@@ -92,6 +92,7 @@ struct uterm_display {
  	unsigned int flags;
  	unsigned int width;
  	unsigned int height;
@@ -336,65 +336,6 @@ index 37270c7..0a38ad1 100644
  
  static int dummy_set_calls;
  static int dummy_unset_calls;
--- 
-2.51.2
-
-
-From 9c39fa5d6d2edadb934a3ef9ef6929223658393b Mon Sep 17 00:00:00 2001
-From: honjow <honjow311@gmail.com>
-Date: Thu, 23 Apr 2026 19:04:31 +0800
-Subject: [PATCH 2/2] build: make v9.3.4 buildable with bundled libtsm
-
-v9.3.4's meson.build requires libtsm >= 4.5.0 but the libtsm wrap was
-left pinned at v4.4.2 and kmscon's own src/shl_dlist.h does not expose
-the shl_dlist_next/_prev helpers that libtsm 4.5.0 sources rely on. On
-systems whose distro libtsm is still 4.4.x meson falls back to the
-wrap and the build then fails because libtsm sources pick up kmscon's
-older shl_dlist.h first on the include path.
-
-Bump the wrap revision to v4.5.0 and add the two missing macros to
-src/shl_dlist.h, mirroring the libtsm definition. When the system
-libtsm catches up to >= 4.5.0 the wrap is not used and these macros
-become a no-op carry.
----
- src/shl_dlist.h         | 10 ++++++++++
- subprojects/libtsm.wrap |  2 +-
- 2 files changed, 11 insertions(+), 1 deletion(-)
-
-diff --git a/src/shl_dlist.h b/src/shl_dlist.h
-index 83cd233..9e70384 100644
---- a/src/shl_dlist.h
-+++ b/src/shl_dlist.h
-@@ -102,6 +102,16 @@ static inline bool shl_dlist_empty(struct shl_dlist *head)
- 
- #define shl_dlist_last(head, type, member) shl_dlist_entry((head)->prev, type, member)
- 
-+/* libtsm >= 4.5.0 uses these typed iter helpers. Keep them in sync with
-+ * subprojects/libtsm/src/shared/shl_dlist.h so that libtsm sources compiled
-+ * via the meson wrap pick up a compatible definition (kmscon's src/ comes
-+ * first on the include path). */
-+#define shl_dlist_next(iter, head, member) \
-+	((iter)->member.next == (head) ? NULL : shl_dlist_entry((iter)->member.next, typeof(*iter), list))
-+
-+#define shl_dlist_prev(iter, head, member) \
-+	((iter)->member.prev == (head) ? NULL : shl_dlist_entry((iter)->member.prev, typeof(*iter), list))
-+
- #define shl_dlist_for_each(iter, head) for (iter = (head)->next; iter != (head); iter = iter->next)
- 
- #define shl_dlist_for_each_but_one(iter, start, head)                                              \
-diff --git a/subprojects/libtsm.wrap b/subprojects/libtsm.wrap
-index 4e6af2e..1d00fa3 100644
---- a/subprojects/libtsm.wrap
-+++ b/subprojects/libtsm.wrap
-@@ -2,7 +2,7 @@
- directory = libtsm
- 
- url = https://github.com/kmscon/libtsm
--revision = v4.4.2
-+revision = v4.5.0
- depth = 1
- 
- [provide]
 -- 
 2.51.2
 
