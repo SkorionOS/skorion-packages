@@ -461,8 +461,7 @@ jobs:
           echo "==> 验证清理结果"
           DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
             jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
-            while read name; do python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$name"; done | \
-            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
+            python3 -c "import sys, urllib.parse; suffix='.pkg.tar.zst'; [print(parts[0]) for raw in sys.stdin for name in [urllib.parse.unquote(raw.strip())] if name.endswith(suffix) for parts in [name[:-len(suffix)].rsplit('-', 3)] if len(parts) == 4]" | sort | uniq -d)
           
           if [ -n "$DUPES" ]; then
             echo "❌ 错误：仍然存在重复的包："
@@ -642,8 +641,7 @@ jobs:
           echo "==> 验证清理结果"
           DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
             jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
-            while read name; do python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$name"; done | \
-            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
+            python3 -c "import sys, urllib.parse; suffix='.pkg.tar.zst'; [print(parts[0]) for raw in sys.stdin for name in [urllib.parse.unquote(raw.strip())] if name.endswith(suffix) for parts in [name[:-len(suffix)].rsplit('-', 3)] if len(parts) == 4]" | sort | uniq -d)
           
           if [ -n "$DUPES" ]; then
             echo "⚠️ 警告：仍然存在重复的包："
@@ -914,7 +912,7 @@ jobs:
           echo "==> 最终验证"
           DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
             jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
-            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
+            python3 -c "import sys, urllib.parse; suffix='.pkg.tar.zst'; [print(parts[0]) for raw in sys.stdin for name in [urllib.parse.unquote(raw.strip())] if name.endswith(suffix) for parts in [name[:-len(suffix)].rsplit('-', 3)] if len(parts) == 4]" | sort | uniq -d)
           
           if [ -n "$DUPES" ]; then
             echo "❌ 错误：发布前仍存在重复版本："

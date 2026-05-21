@@ -55,39 +55,36 @@ fi
 
 echo "  Release ID: $RELEASE_ID"
 
-# 提取包名的函数（处理 epoch 等复杂情况）
+# Extract package names while handling dotted pkgrel and epoch formats.
 extract_package_name() {
     local filename="$1"
     
-    # 移除 .pkg.tar.zst
+    # Remove .pkg.tar.zst
     filename="${filename%.pkg.tar.zst}"
     
-    # 从右往左依次移除: arch -> pkgrel -> pkgver
-    # 格式: packagename-[epoch-]pkgver-pkgrel-arch
-    
-    # 移除 arch (最后一个 -)
-    if [[ "$filename" =~ ^(.+)-([^-]+)$ ]]; then
-        filename="${BASH_REMATCH[1]}"
-        
-        # 移除 pkgrel (倒数第二个 -)
-        if [[ "$filename" =~ ^(.+)-([0-9]+)$ ]]; then
-            filename="${BASH_REMATCH[1]}"
-            
-            # 移除 pkgver (可能包含 epoch，格式是 epoch--version)
-            if [[ "$filename" =~ ^(.+)-([0-9]+)--(.+)$ ]]; then
-                # 有 epoch: packagename-epoch--version
-                echo "${BASH_REMATCH[1]}"
-            elif [[ "$filename" =~ ^(.+)-(.+)$ ]]; then
-                # 无 epoch: packagename-version
-                echo "${BASH_REMATCH[1]}"
-            else
-                echo "$filename"
-            fi
-        else
-            echo "$filename"
-        fi
+    # Format: packagename-[epoch--]pkgver-pkgrel-arch
+    # pkgrel may be dotted, for example 0.1.
+    if [[ "$filename" =~ ^(.+)-([0-9]+)--([^-]+)-([^-]+)-([^-]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    elif [[ "$filename" =~ ^(.+)-([^-]+)-([^-]+)-([^-]+)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
     else
         echo "$filename"
+    fi
+}
+
+# Extract a version string that can be compared with vercmp.
+extract_package_version() {
+    local filename="$1"
+    
+    filename="${filename%.pkg.tar.zst}"
+    
+    if [[ "$filename" =~ ^(.+)-([0-9]+)--([^-]+)-([^-]+)-([^-]+)$ ]]; then
+        echo "${BASH_REMATCH[2]}:${BASH_REMATCH[3]}-${BASH_REMATCH[4]}"
+    elif [[ "$filename" =~ ^(.+)-([^-]+)-([^-]+)-([^-]+)$ ]]; then
+        echo "${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
+    else
+        echo ""
     fi
 }
 
@@ -229,29 +226,9 @@ else
         for version_info in "${version_array[@]}"; do
             IFS=':' read -r asset_id asset_name created_at <<< "$version_info"
             
-            # 从文件名中提取版本号 (epoch:pkgver-pkgrel)
-            # 格式: pkgname-[epoch--]pkgver-pkgrel-arch.pkg.tar.zst
-            pkg_full="${asset_name%.pkg.tar.zst}"
-            
-            # 从右往左提取 arch 和 pkgrel
-            if [[ "$pkg_full" =~ ^(.+)-([^-]+)-([^-]+)$ ]]; then
-                pkg_with_ver="${BASH_REMATCH[1]}"
-                pkgrel="${BASH_REMATCH[2]}"
-                
-                # 检查是否有 epoch（格式：packagename-epoch--pkgver）
-                if [[ "$pkg_with_ver" =~ ^(.+)-([0-9]+)--(.+)$ ]]; then
-                    epoch="${BASH_REMATCH[2]}"
-                    pkgver="${BASH_REMATCH[3]}"
-                    current_version="${epoch}:${pkgver}-${pkgrel}"
-                elif [[ "$pkg_with_ver" =~ ^(.+)-(.+)$ ]]; then
-                    pkgver="${BASH_REMATCH[2]}"
-                    current_version="${pkgver}-${pkgrel}"
-                else
-                    echo "      警告: 无法解析版本 $asset_name，跳过"
-                    continue
-                fi
-            else
-                echo "      警告: 无法解析文件名 $asset_name，跳过"
+            current_version=$(extract_package_version "$asset_name")
+            if [ -z "$current_version" ]; then
+                echo "      警告: 无法解析版本 $asset_name，跳过"
                 continue
             fi
             
@@ -290,21 +267,9 @@ else
             # URL 解码文件名
             asset_name=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$asset_name")
             
-            # 重新提取版本号用于显示
-            pkg_full="${asset_name%.pkg.tar.zst}"
-            if [[ "$pkg_full" =~ ^(.+)-([^-]+)-([^-]+)$ ]]; then
-                pkg_with_ver="${BASH_REMATCH[1]}"
-                pkgrel="${BASH_REMATCH[2]}"
-                if [[ "$pkg_with_ver" =~ ^(.+)-([0-9]+)--(.+)$ ]]; then
-                    display_version="${BASH_REMATCH[2]}:${BASH_REMATCH[3]}-${pkgrel}"
-                elif [[ "$pkg_with_ver" =~ ^(.+)-(.+)$ ]]; then
-                    display_version="${BASH_REMATCH[2]}-${pkgrel}"
-                else
-                    display_version="unknown"
-                fi
-            else
-                display_version="unknown"
-            fi
+            # Extract the version again for display.
+            display_version=$(extract_package_version "$asset_name")
+            display_version="${display_version:-unknown}"
             
             if [ "$asset_id" = "$latest_asset_id" ]; then
                 # 保留

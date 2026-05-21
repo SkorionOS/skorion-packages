@@ -125,7 +125,7 @@ jobs:
             "https://api.github.com/repos/${REPO_FULL}/releases/tags/${RELEASE_TAG}")
           
           DUPES=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
-            sed 's/-[0-9].*\.pkg\.tar\.zst$//' | sort | uniq -d)
+            python3 -c "import sys, urllib.parse; suffix='.pkg.tar.zst'; [print(parts[0]) for raw in sys.stdin for name in [urllib.parse.unquote(raw.strip())] if name.endswith(suffix) for parts in [name[:-len(suffix)].rsplit('-', 3)] if len(parts) == 4]" | sort | uniq -d)
           
           if [ -z "$DUPES" ]; then
             echo "✅ 清理成功！没有重复版本了"
