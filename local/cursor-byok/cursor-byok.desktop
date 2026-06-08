@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Cursor 助手
+GenericName=Cursor BYOK
+Comment=Infinite BYOK in Cursor
+Exec=cursor-byok
+Icon=cursor
+Terminal=false
+Categories=Development;IDE;
+StartupWMClass=Cursor助手

@@ -22,7 +22,7 @@ pkgname=(
 )
 # pkgver=25.3.0
 # _pkgver=${pkgver/[a-z]/-&}
-_pkgver=26.1.0
+_pkgver=26.1.2
 pkgver=${_pkgver//-/.}.sk
 pkgrel=1
 epoch=1
@@ -173,7 +173,7 @@ b2sums=('SKIP'
         '93385f64103fdb482bec34c7912474ae7a5935948715e6eb9a54907e0db5c39f089f6cd393bab33c935c59a1bbb0f4099431f206343811c1a450554d96a35756')
 
 # https://docs.mesa3d.org/relnotes.html
-sha256sums=('SKIP'
+sha256sums=('bac2bca9121897a2b8162e79636b50ac998fca799c8e6cf914edd85962babdf0'
             'SKIP'
             '67914ab451f3bfd2e69e5e9d2ef3858484e7074d63f204fd166ec391b54de21d'
             'ed646292ffc8188ef8ea4d1e0e0150fb15a5c2e12ad9b8fc191ae7a8a7f3c4b9'

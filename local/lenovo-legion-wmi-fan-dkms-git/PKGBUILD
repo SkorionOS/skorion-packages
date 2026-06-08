@@ -1,6 +1,6 @@
 _pkgname=lenovo-legion-wmi-fan
 pkgname=$_pkgname-dkms-git
-pkgver=0.1.0.r0.g0ef019b
+pkgver=0.1.0.r1.g60365f1
 pkgrel=1
 pkgdesc='Linux kernel driver for Lenovo Legion Go fan curve control via WMI'
 arch=('x86_64')

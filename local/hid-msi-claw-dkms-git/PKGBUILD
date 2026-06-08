@@ -1,6 +1,6 @@
 _pkgname=hid-msi-claw
 pkgname=$_pkgname-dkms-git
-pkgver=0.0.2.r24.gea70f04
+pkgver=0.0.2.r47.g57997aa
 pkgrel=1
 pkgdesc='Linux kernel driver for MSI Claw device'
 arch=('x86_64')

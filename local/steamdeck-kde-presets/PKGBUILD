@@ -1,6 +1,6 @@
 # Maintainer: SkorionOS Team
 pkgname=steamdeck-kde-presets
-pkgver=0.29
+pkgver=0.30
 pkgrel=1
 pkgdesc="KDE Presets from Valve's SteamOS 3.0"
 arch=('any')
@@ -8,7 +8,7 @@ url="https://github.com/SkorionOS/skorionos"
 license=('GPL2')
 conflicts=('steameck-gnome-presets')
 source=("https://gitlab.com/evlaV/${pkgname}/-/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz")
-md5sums=('SKIP')
+md5sums=('3828586e4a6b1994ad0ffbe3dc127ec6')
 
 package() {
     cd "$srcdir/${pkgname}-${pkgver}"

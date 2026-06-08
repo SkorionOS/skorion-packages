@@ -44,7 +44,7 @@ source=(
   git+${url}.git#tag=v${pkgver}
   "0001-auto-detect-panel-orientation.patch"
 )
-sha256sums=('5f7622b954416c5cc1ecdc69597c240a1b32fb0102a3d41264c981e327e931eb'
+sha256sums=('SKIP'
             '60fb0838a043f32e86714f26f31a3c2f270de1239ae45efed00b904b8434f939')
 
 prepare() {

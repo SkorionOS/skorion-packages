@@ -3,7 +3,7 @@
 # Contributor: ryanvade
 # Contributor: honjow
 pkgname=gnome-shell-extension-hibernate-status-git
-pkgver=1.17.r0.g1a6e4ea
+pkgver=1.17.r1.g8e4b959
 pkgrel=1
 pkgdesc="GNOME Shell extension that adds a hibernate/hybrid suspend button in Status menu."
 arch=('any')

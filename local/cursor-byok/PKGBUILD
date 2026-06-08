@@ -1,0 +1,21 @@
+# Maintainer: honjow
+# shellcheck disable=SC2034,SC2148
+pkgname=cursor-byok
+pkgver=0.0.32
+pkgrel=1
+pkgdesc="Infinite BYOK in Cursor - 自由选择模型，集成自定义模型 API"
+arch=('x86_64')
+url="https://github.com/leookun/cursor-byok"
+license=('custom')
+depends=('glibc')
+source=("${pkgname}-${pkgver}-linux-amd64.tar.gz::${url}/releases/download/v${pkgver}/${pkgname}-${pkgver}-linux-amd64.tar.gz"
+        "${pkgname}.desktop")
+sha256sums=('f8d40cf19ccc0d5a5bd6427e20875dfaa288cc79a1ea758bfc5e196ef2b8b4a6'
+            'd72558cad1b94fdb1c75d79ed02ebac473f6683716df494cee52bfefec10636c')
+
+options=(!strip)
+
+package() {
+    install -Dm755 "${srcdir}/Cursor助手" "${pkgdir}/usr/bin/cursor-byok"
+    install -Dm644 "${srcdir}/${pkgname}.desktop" "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+}
