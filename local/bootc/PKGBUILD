@@ -1,5 +1,5 @@
 pkgname=bootc
-pkgver=1.16.0
+pkgver=1.16.3
 pkgrel=1
 pkgdesc="Boot and upgrade via container images"
 arch=('x86_64' 'i686' 'armv6h' 'armv7h')
@@ -13,7 +13,7 @@ makedepends=(cargo
 provides=("bootc=$pkgver")
 conflicts=('bootc')
 source=("https://github.com/bootc-dev/bootc/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('ca242188861b38e60771597ae97509a71eb9efb9d44d14f24e30b13440a17d86')
+sha256sums=('6c337b2c1f5e744fd2ff1550176d5b11bd1fcb41594ca67d8a22b66f13681bf1')
 # options=(!lto)
 
 prepare() {
