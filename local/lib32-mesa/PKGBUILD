@@ -24,7 +24,7 @@ pkgname=(
 # _pkgver=${pkgver/[a-z]/-&}
 _pkgver=26.1.4
 pkgver=${_pkgver//-/.}.sk
-pkgrel=2
+pkgrel=3
 epoch=1
 pkgdesc="Open-source OpenGL drivers - 32-bit"
 url="https://www.mesa3d.org/"
@@ -230,12 +230,14 @@ prepare() {
 
   # Workaround DirectX-Headers #238: d3d12.h references ID3D12InfoQueue
   # without a forward declaration (breaks with directx-headers >= 1.721).
+  # Keep this header valid plain C/C++ so meson compiler checks still pass.
   cat > "$srcdir/d3d12-infoqueue-fwd.h" <<'EOF'
 #ifndef __ID3D12InfoQueue_FWD_DEFINED__
 #define __ID3D12InfoQueue_FWD_DEFINED__
-typedef interface ID3D12InfoQueue ID3D12InfoQueue;
 #ifdef __cplusplus
-interface ID3D12InfoQueue;
+struct ID3D12InfoQueue;
+#else
+typedef struct ID3D12InfoQueue ID3D12InfoQueue;
 #endif
 #endif
 EOF
