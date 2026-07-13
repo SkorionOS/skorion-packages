@@ -20,6 +20,7 @@ makedepends=(
     'nlohmann-json'
     'python-mako'
     'vulkan-headers'
+    'wayland-protocols'
 )
 depends=(
     'gcc-libs'

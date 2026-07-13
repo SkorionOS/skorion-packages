@@ -24,7 +24,7 @@ pkgname=(
 # _pkgver=${pkgver/[a-z]/-&}
 _pkgver=26.1.4
 pkgver=${_pkgver//-/.}.sk
-pkgrel=1
+pkgrel=2
 epoch=1
 pkgdesc="Open-source OpenGL drivers - 32-bit"
 url="https://www.mesa3d.org/"
@@ -227,6 +227,18 @@ prepare() {
   # its GPU cache; otherwise it can cause pages to render incorrectly.
   # https://bugs.launchpad.net/ubuntu/+source/chromium-browser/+bug/2020604
   echo "$_pkgver-arch$epoch.$pkgrel" >VERSION
+
+  # Workaround DirectX-Headers #238: d3d12.h references ID3D12InfoQueue
+  # without a forward declaration (breaks with directx-headers >= 1.721).
+  cat > "$srcdir/d3d12-infoqueue-fwd.h" <<'EOF'
+#ifndef __ID3D12InfoQueue_FWD_DEFINED__
+#define __ID3D12InfoQueue_FWD_DEFINED__
+typedef interface ID3D12InfoQueue ID3D12InfoQueue;
+#ifdef __cplusplus
+interface ID3D12InfoQueue;
+#endif
+#endif
+EOF
 }
 
 build() {
@@ -253,6 +265,10 @@ build() {
   # Build only minimal debug info to reduce size
   CFLAGS+=" -g1"
   CXXFLAGS+=" -g1"
+
+  # Force-include the DirectX-Headers #238 forward declaration
+  CFLAGS+=" -include $srcdir/d3d12-infoqueue-fwd.h"
+  CXXFLAGS+=" -include $srcdir/d3d12-infoqueue-fwd.h"
 
   # Inject subproject packages
   export MESON_PACKAGE_CACHE_DIR="$srcdir"
