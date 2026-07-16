@@ -20,6 +20,7 @@ makedepends=(
     'nlohmann-json'
     'python-mako'
     'vulkan-headers'
+    'vulkan-icd-loader'
     'wayland-protocols'
 )
 depends=(
@@ -35,12 +36,12 @@ depends=(
     'python-matplotlib'
     'python-numpy'
     'sh'
+    'vulkan-icd-loader'
     'wayland'
 )
 optdepends=(
     'dbus: mangohudctl'
     'libxnvctrl: NVIDIA GPU metrics on older GPUs'
-    'vulkan-icd-loader: Vulkan support'
 )
 provides=('mangohud' 'mangoapp')
 replaces=('mangoapp')
