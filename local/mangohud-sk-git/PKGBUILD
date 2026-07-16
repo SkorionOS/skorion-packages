@@ -22,6 +22,7 @@ makedepends=(
     'vulkan-headers'
     'vulkan-icd-loader'
     'wayland-protocols'
+    'yaml-cpp'
 )
 depends=(
     'gcc-libs'
@@ -29,15 +30,20 @@ depends=(
     'glfw'
     'glibc'
     'hicolor-icon-theme'
+    'libcap'
+    'libdrm'
     'libglvnd'
     'libx11'
     'libxkbcommon'
+    'mesa'
     'python'
     'python-matplotlib'
     'python-numpy'
     'sh'
+    'systemd-libs'
     'vulkan-icd-loader'
     'wayland'
+    'yaml-cpp'
 )
 optdepends=(
     'dbus: mangohudctl'
