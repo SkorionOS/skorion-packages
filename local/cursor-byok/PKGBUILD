@@ -1,7 +1,7 @@
 # Maintainer: honjow
 # shellcheck disable=SC2034,SC2148
 pkgname=cursor-byok
-pkgver=0.0.39
+pkgver=0.0.45
 pkgrel=1
 pkgdesc="Infinite BYOK in Cursor - 自由选择模型，集成自定义模型 API"
 arch=('x86_64')
@@ -10,7 +10,7 @@ license=('custom')
 depends=('glibc')
 source=("${pkgname}-${pkgver}-linux-amd64.tar.gz::${url}/releases/download/v${pkgver}/${pkgname}-${pkgver}-linux-amd64.tar.gz"
         "${pkgname}.desktop")
-sha256sums=('f17589c7ed0a1640901c8b65f9873ce91abaab09a8cd9e11a3b3e1009e8d1ab7'
+sha256sums=('7ec25ae1edb9e373755d759187deb5fa46b86e597d84fc1638875d4d7b527766'
             'd72558cad1b94fdb1c75d79ed02ebac473f6683716df494cee52bfefec10636c')
 
 options=(!strip)
