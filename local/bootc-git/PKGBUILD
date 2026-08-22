@@ -1,7 +1,7 @@
 
 pkgname=bootc-git
 _pkgname=bootc
-pkgver=1.16.0.r11.gbec34ca
+pkgver=1.16.9.r3.g534c76e
 pkgrel=1
 pkgdesc="Boot and upgrade via container images"
 arch=('x86_64' 'i686' 'armv6h' 'armv7h')
