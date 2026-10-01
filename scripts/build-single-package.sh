@@ -60,7 +60,17 @@ if [ "$PACKAGE_TYPE" = "aur" ]; then
             git checkout "$PIN_COMMIT"
         fi
     fi
-    
+
+    # Let makepkg derive Mesa's LLVM soname dependency from the linked binaries.
+    # A hardcoded ABI becomes uninstallable after an Arch LLVM upgrade. Keeping
+    # the bare .so dependency retains the correct ABI pin in the built package.
+    # Apply after checkout so pinned recipes receive the same normalization.
+    case "$PACKAGE_NAME" in
+        mesa-git|lib32-mesa-git)
+            sed -E -i "s/(['\"])libLLVM[.]so=[0-9][0-9.]*-(32|64)\\1/\\1libLLVM.so\\1/g" PKGBUILD
+            ;;
+    esac
+
     # 使用 pikaur 构建（自动处理依赖）
     echo "==> 使用 pikaur 构建 $PACKAGE_NAME"
     if [ -n "${SRCDEST:-}" ]; then
