@@ -7,12 +7,23 @@ on:
   # 在主工作流完成后自动触发（无论成功、失败还是取消）
   workflow_run:
     workflows: ["Build Packages"]
+    branches: [master]
     types:
       - completed  # 包括 success, failure, cancelled
 
 jobs:
   cleanup:
     name: Clean Up All Locks
+    # workflow_run uses the default-branch copy of this file. Never let PRs,
+    # forks, or runs on another branch delete the production database locks.
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.name == 'Build Packages' &&
+       contains(fromJSON('["push", "schedule", "workflow_dispatch"]'), github.event.workflow_run.event) &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.head_branch == github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
       - name: Clean up all lock refs

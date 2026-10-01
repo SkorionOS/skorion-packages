@@ -3,8 +3,6 @@ name: Build Packages
 on:
   push:
     branches: [master]
-  pull_request:
-    branches: [master]
   schedule:
     - cron: 0 0 * * *
   workflow_dispatch:
@@ -1032,8 +1030,15 @@ jobs:
             SigLevel = Optional TrustAll
             Server = https://github.com/${{ github.repository }}/releases/download/${{ steps.release-info.outputs.date }}
             ```
-          files: output/*
-          fail_on_unmatched_files: true
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 大量包并发上传可能出现 socket hang up；逐个上传并仅重试失败的文件。
+      - name: Upload dated snapshot assets
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release-info.outputs.date }}
+        run: bash scripts/upload-release-assets.sh "$RELEASE_REPOSITORY" "$RELEASE_TAG" output

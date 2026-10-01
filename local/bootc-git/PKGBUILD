@@ -1,18 +1,22 @@
 
 pkgname=bootc-git
 _pkgname=bootc
-pkgver=1.16.9.r3.g534c76e
-pkgrel=1
+pkgver=1.16.14.r33.g1857859
+pkgrel=2
 pkgdesc="Boot and upgrade via container images"
 arch=('x86_64' 'i686' 'armv6h' 'armv7h')
 url="https://bootc-dev.github.io/bootc"
 _url="https://www.github.com/$_pkgname-dev/$_pkgname"
 license=('MIT OR Apache-2.0')
+# Current bootc links libselinux unconditionally, including during doc generation.
 depends=(gcc-libs
   glibc
+  libselinux
   ostree
   systemd)
+# selinux-sys uses bindgen and needs libclang at build time.
 makedepends=(cargo
+  clang
   git
   make
   go-md2man)

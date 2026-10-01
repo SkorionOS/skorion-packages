@@ -1,0 +1,84 @@
+# Keep this name different from Build Packages: workflow_run cleanup executes
+# from the default branch, which may still contain the old unguarded workflow.
+name: Validate Packages
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: validate-packages-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  select-packages:
+    name: Regression Tests and Changed Packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      packages: ${{ steps.packages.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The default pull_request checkout is the proposed merge commit.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install workflow test dependency
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+      - name: Run offline regression tests
+        run: |
+          bash tests/test-bootc-dependencies.sh
+          python3 -m unittest discover -s tests -v
+      - name: Select packages changed by this PR
+        id: packages
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          matrix=$(python3 scripts/select-pr-packages.py --base "$PR_BASE_SHA" --head HEAD)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Packages to validate: $matrix"
+
+  build-packages:
+    name: Validate ${{ matrix.type }} package - ${{ matrix.package }}
+    needs: select-packages
+    if: needs.select-packages.outputs.packages != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include: ${{ fromJSON(needs.select-packages.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build package in a fresh Arch container
+        env:
+          PACKAGE_NAME: ${{ matrix.package }}
+          PACKAGE_TYPE: ${{ matrix.type }}
+        run: |
+          # Do not interpolate matrix values into shell source. Revalidate before
+          # passing them to the existing builder, which uses a nested shell.
+          python3 - <<'PY'
+          import os
+          import re
+          assert re.fullmatch(r"[a-z0-9][a-z0-9@._+\-]*", os.environ["PACKAGE_NAME"], re.ASCII), "Unsafe package name"
+          assert os.environ["PACKAGE_TYPE"] in ("aur", "local"), "Unknown package type"
+          PY
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          # No release tokens, Docker socket, production caches, or host package
+          # caches are passed into this disposable build container.
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            archlinux:latest \
+            bash /workspace/scripts/build-in-container.sh "$PACKAGE_NAME" "$PACKAGE_TYPE"
+          find output -maxdepth 1 -type f -name '*.pkg.tar.zst' -print -quit | grep -q .
