@@ -22,7 +22,7 @@ pkgname=(
 )
 # pkgver=25.3.0
 # _pkgver=${pkgver/[a-z]/-&}
-_pkgver=26.2.1
+_pkgver=26.2.4
 pkgver=${_pkgver//-/.}.sk
 pkgrel=1
 epoch=1
@@ -146,7 +146,7 @@ for _crate in "${!_crates[@]}"; do
   )
 done
 
-b2sums=('f5ec3451d18da9336d775259dd0d3f0c73c81d0857ba7da32dd296aba258ad5b8424fb8781582a838375e99710451d2aaeda94def604ad006e5a5a378b44d30a'
+b2sums=('28506a9366e3c031acbb52924e43b0ec098f44a3ac3bb839ec2a86fa0faf83652347704b0e58bdc447aaebae5a2a254e5456e0b893755fd7721e57d6b614ecc4'
         'SKIP'
         '5fed0ea98fea7b72e9d015bddbc5337d936eb3a07f358e29421d081e76bf927bc270be5ef98e38b969b0a59a362c5b330554b446f81627821f52b2fbea0bb12c'
         '431439d31632d177aeb15f910b4f546efa76d54fc74fc8e140399dc5e54eca33fd606f11dbfb48fa83067c8474ee512e62751895d5948367b65ab08b984284e5'
@@ -180,7 +180,7 @@ b2sums=('f5ec3451d18da9336d775259dd0d3f0c73c81d0857ba7da32dd296aba258ad5b8424fb8
         '93385f64103fdb482bec34c7912474ae7a5935948715e6eb9a54907e0db5c39f089f6cd393bab33c935c59a1bbb0f4099431f206343811c1a450554d96a35756')
 
 # https://docs.mesa3d.org/relnotes.html
-sha256sums=('c47e81bddc4760360a41ac3c5acec38acb81f9d750ecef47e7f3adc7021a4442'
+sha256sums=('bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9'
             'SKIP'
             'b8aa498d22c9bbaf482329839bc5620c46be275a19a812e9a22a2b07529a642a'
             '67914ab451f3bfd2e69e5e9d2ef3858484e7074d63f204fd166ec391b54de21d'
@@ -294,6 +294,70 @@ _pick() {
   done
 }
 
+# Arch's lib32-llvm-libs does not provide a libLLVM.so=<ABI>-32 dependency.
+# Do not emit that unsatisfiable dependency or guess an ABI from llvm-config.
+# Validate each split's actual ELF requirements, then pin the installed provider's
+# epoch:pkgver. Omitting pkgrel allows packaging-only rebuilds; an upstream LLVM
+# version change requires rebuilding all four LLVM-using lib32 splits together.
+_llvm32_depends() {
+  local file dynamic soname header runtime owner version i found=0
+  local -A needed=()
+
+  [[ -d $pkgdir/usr/lib32 ]] || return 1
+  while IFS= read -r -d '' file; do
+    dynamic=$(LC_ALL=C readelf -d "$file") || return 1
+    while IFS= read -r soname; do
+      [[ -n $soname ]] || continue
+      header=$(LC_ALL=C readelf -h "$file") || return 1
+      if [[ $header != *ELF32* ]]; then
+        printf 'ERROR: Expected 32-bit LLVM consumer: %s\n' "$file" >&2
+        return 1
+      fi
+      needed["$soname"]=1
+    done < <(sed -n 's/.*(NEEDED).*\[\(libLLVM\.so[^]]*\)\].*/\1/p' <<< "$dynamic")
+  done < <(find "$pkgdir/usr/lib32" -type f -name '*.so*' -print0)
+
+  if (( ${#needed[@]} != 1 )); then
+    printf 'ERROR: Expected exactly one LLVM SONAME in %s\n' "$pkgname" >&2
+    return 1
+  fi
+  soname=${!needed[*]}
+  if [[ ! $soname =~ ^libLLVM[.]so[.][0-9]+([.][0-9]+)*$ ]]; then
+    printf 'ERROR: Unsupported LLVM SONAME: %s\n' "$soname" >&2
+    return 1
+  fi
+
+  runtime="/usr/lib32/$soname"
+  header=$(LC_ALL=C readelf -h "$runtime") || return 1
+  dynamic=$(LC_ALL=C readelf -d "$runtime") || return 1
+  if [[ $header != *ELF32* ]] ||
+      ! grep -F '(SONAME)' <<< "$dynamic" | grep -Fq "[$soname]"; then
+    printf 'ERROR: LLVM provider does not match the built 32-bit ABI: %s\n' "$runtime" >&2
+    return 1
+  fi
+  owner=$(pacman -Qqo "$runtime") || return 1
+  if [[ $owner != lib32-llvm-libs ]]; then
+    printf 'ERROR: Unexpected LLVM provider for %s: %s\n' "$runtime" "$owner" >&2
+    return 1
+  fi
+  version=$(pacman -Q lib32-llvm-libs) || return 1
+  version=${version#lib32-llvm-libs }
+  if [[ ! $version =~ ^([0-9]+:)?[a-zA-Z0-9._+]+-[0-9]+([.][0-9]+)?$ ]]; then
+    printf 'ERROR: Invalid lib32-llvm-libs package version: %s\n' "$version" >&2
+    return 1
+  fi
+  for i in "${!depends[@]}"; do
+    if [[ ${depends[i]} == lib32-llvm-libs ]]; then
+      depends[i]="lib32-llvm-libs=${version%-*}"
+      found=1
+    fi
+  done
+  if (( ! found )); then
+    printf 'ERROR: Missing lib32-llvm-libs dependency in %s\n' "$pkgname" >&2
+    return 1
+  fi
+}
+
 package_lib32-mesa() {
   depends=(
     lib32-expat
@@ -381,6 +445,8 @@ package_lib32-mesa() {
   )
 
   install -Dm644 mesa-$_pkgver/docs/license.rst -t "$pkgdir/usr/share/licenses/$pkgname"
+
+  _llvm32_depends || return 1
 }
 
 package_lib32-opencl-mesa() {
@@ -414,6 +480,8 @@ package_lib32-opencl-mesa() {
   mv opencl/* "$pkgdir"
 
   install -Dm644 mesa-$_pkgver/docs/license.rst -t "$pkgdir/usr/share/licenses/$pkgname"
+
+  _llvm32_depends || return 1
 }
 
 package_lib32-vulkan-asahi() {
@@ -624,6 +692,8 @@ package_lib32-vulkan-radeon() {
   mv vkradeon/* "$pkgdir"
 
   install -Dm644 mesa-$_pkgver/docs/license.rst -t "$pkgdir/usr/share/licenses/$pkgname"
+
+  _llvm32_depends || return 1
 }
 
 package_lib32-vulkan-swrast() {
@@ -657,6 +727,8 @@ package_lib32-vulkan-swrast() {
   mv vkswrast/* "$pkgdir"
 
   install -Dm644 mesa-$_pkgver/docs/license.rst -t "$pkgdir/usr/share/licenses/$pkgname"
+
+  _llvm32_depends || return 1
 }
 
 package_lib32-vulkan-virtio() {

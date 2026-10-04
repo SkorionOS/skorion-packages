@@ -1,341 +1,302 @@
-From 75a77468b634c3801ba203ed862501c35939d899 Mon Sep 17 00:00:00 2001
-From: honjow <honjow311@gmail.com>
-Date: Thu, 23 Apr 2026 16:24:37 +0800
-Subject: [PATCH] drm: auto-detect panel orientation and keep plane rotation
- off
+From: SkorionOS packaging maintainers
+Subject: [PATCH] drm: preserve automatic panel orientation on kmscon 10.0
 
-Read the kernel "panel orientation" connector property when binding a
-DRM display, store it on uterm_display, and combine it with the
-user-requested --rotate value when rendering text. This makes the
-console come up correctly on devices whose panel is mounted in a
-non-standard orientation (e.g. portrait-mounted panels reported by the
-amdgpu panel-orientation quirks) without requiring an explicit
---rotate argument.
+Port the original honjow panel-orientation/plane-reset patch to 10.0.4.
+The renderer now owns one display from construction onward: combine its
+panel correction with --rotate before backend initialization and font
+sizing, and do not reapply it on font changes. Grab keys already pass an
+effective orientation. Reset optional primary-plane rotation on every
+atomic commit, preserving the legacy path and propagating add failures.
 
-Also force the primary plane "rotation" property back to rotate-0 on
-every atomic commit. Some drivers (notably amdgpu) leave a non-zero
-rotation set on the plane after a VT switch from a graphical session,
-which would otherwise stack on top of kmscon's software rotation and
-flip the console upside down on subsequent activations.
+Keep all four kernel enum-name mappings from the original patch; fbdev
+and missing/unknown properties retain normal orientation. Extend the
+upstream renderer test to exercise every panel/user combination, backend
+fallback, geometry before set, and rotation across repeated font setup.
 
-Changes:
-- new uterm_panel_orientation enum + uterm_display_get_panel_orientation()
-- uterm_drm_shared: read "panel orientation" connector property and
-  cache it on the display
-- uterm_drm_shared: explicitly set plane "rotation" to DRM_MODE_ROTATE_0
-  in uterm_drm_prepare_commit (silently skipped on drivers without the
-  property)
-- text: split user_orientation from the effective render orientation
-  and apply the panel correction in kmscon_text_set
----
- src/text.c                 | 34 ++++++++++++++
- src/text.h                 |  6 +++
- src/uterm_drm_shared.c     | 93 ++++++++++++++++++++++++++++++++++++++
- src/uterm_video.c          |  9 ++++
- src/uterm_video.h          | 13 ++++++
- src/uterm_video_internal.h |  1 +
- tests/test_text.c          |  6 +++
- 7 files changed, 162 insertions(+)
-
-diff --git a/src/text.c b/src/text.c
-index 5f17be5..5ab692f 100644
---- a/src/text.c
-+++ b/src/text.c
-@@ -122,6 +122,7 @@ static int new_text(struct kmscon_text *text, const char *backend, enum Orientat
- 	text->record = record;
- 	text->ops = record->data;
- 	text->orientation = orientation;
-+	text->user_orientation = orientation;
- 
- 	if (text->ops->init)
- 		ret = text->ops->init(text);
-@@ -176,6 +177,7 @@ int kmscon_text_new(struct kmscon_text **out, const char *backend, const char *r
- 			log_debug("using: orientation: left");
+diff --git a/src/render/text.c b/src/render/text.c
+--- a/src/render/text.c
++++ b/src/render/text.c
+@@ -176,6 +176,13 @@
  		}
  	}
-+	text->user_orientation = text->orientation;
  
- 	ret = new_text(text, backend, text->orientation);
++	/* Since 10.0 the display belongs to this renderer for its whole lifetime.
++	 * Apply the panel correction once, before backend init and font sizing.
++	 * Font changes and VT refreshes must not reapply it, and grab-key rotation
++	 * continues to operate on the effective orientation returned by get(). */
++	text->orientation = (enum Orientation)(((unsigned int)text->orientation +
++			(unsigned int)display_get_panel_orientation(disp)) % 4);
++
+ 	ret = new_text(text, backend);
  	if (ret) {
-@@ -244,9 +246,24 @@ void kmscon_text_unref(struct kmscon_text *text)
-  *
-  * Returns: 0 on success, negative error code on failure.
-  */
-+/*
-+ * Combine the user-requested rotation with the connector's "panel orientation"
-+ * correction so that "normal" from the user's perspective always means the
-+ * physically correct orientation for the panel.
-+ *
-+ * Both enums use the same numeric values for 0/90/180/270 CW so we can simply
-+ * add them modulo 4.
-+ */
-+static enum Orientation effective_orientation(enum Orientation user,
-+					      enum uterm_panel_orientation panel)
-+{
-+	return (enum Orientation)(((unsigned)user + (unsigned)panel) % 4);
-+}
-+
- int kmscon_text_set(struct kmscon_text *txt, struct kmscon_font *font, struct uterm_display *disp)
- {
- 	int ret;
-+	enum uterm_panel_orientation panel;
- 
- 	if (!txt || !font || !disp)
- 		return -EINVAL;
-@@ -256,6 +273,14 @@ int kmscon_text_set(struct kmscon_text *txt, struct kmscon_font *font, struct ut
- 	txt->font = font;
- 	txt->disp = disp;
- 
-+	panel = uterm_display_get_panel_orientation(disp);
-+	txt->orientation = effective_orientation(txt->user_orientation, panel);
-+	if (panel != UTERM_PANEL_ORIENTATION_NORMAL)
-+		log_debug("display %s: panel orientation correction %d, "
-+			  "user orientation %d, effective %d",
-+			  uterm_display_name(disp), (int)panel,
-+			  (int)txt->user_orientation, (int)txt->orientation);
-+
- 	if (txt->ops->set) {
- 		ret = txt->ops->set(txt);
- 		if (ret) {
-@@ -373,6 +398,15 @@ enum Orientation kmscon_text_get_orientation(struct kmscon_text *txt)
+ 		if (backend)
+@@ -386,6 +393,10 @@
   */
  int kmscon_text_rotate(struct kmscon_text *txt, enum Orientation orientation)
  {
 +	if (!txt)
 +		return -EINVAL;
 +
-+	/*
-+	 * The argument is the effective render orientation. We do not fold the
-+	 * panel correction in again here, because callers (grab key handlers)
-+	 * use kmscon_text_get_orientation() to read the current effective
-+	 * orientation and then offset from there.
-+	 */
++	/* Callers pass an effective orientation, including the panel correction. */
  	if (txt->ops->rotate)
  		return txt->ops->rotate(txt, orientation);
  	return 0;
-diff --git a/src/text.h b/src/text.h
-index be31244..650ec6f 100644
---- a/src/text.h
-+++ b/src/text.h
-@@ -64,7 +64,13 @@ struct kmscon_text {
- 	unsigned int rows;
+diff --git a/src/render/text.h b/src/render/text.h
+--- a/src/render/text.h
++++ b/src/render/text.h
+@@ -65,6 +65,7 @@
+ 	unsigned int max_cols;
+ 	unsigned int max_rows;
  	bool rendering;
- 	bool overflow_next;
-+	/* effective orientation actually used for rendering: combination of
-+	 * the user-requested orientation and the display's panel orientation
-+	 * correction. Backends should always read this. */
++	/* Effective orientation: panel correction plus user rotation. */
  	enum Orientation orientation;
-+	/* user-requested orientation (from --rotate or grab keys) before any
-+	 * panel orientation correction. */
-+	enum Orientation user_orientation;
+ 	bool blinking;
  };
- 
- struct kmscon_text_ops {
-diff --git a/src/uterm_drm_shared.c b/src/uterm_drm_shared.c
-index 7df2078..62717b6 100644
---- a/src/uterm_drm_shared.c
-+++ b/src/uterm_drm_shared.c
-@@ -135,6 +135,30 @@ static int set_drm_object_property(drmModeAtomicReq *req, struct drm_object *obj
+diff --git a/src/video/drm_shared.c b/src/video/drm_shared.c
+--- a/src/video/drm_shared.c
++++ b/src/video/drm_shared.c
+@@ -144,6 +144,24 @@
  	return drmModeAtomicAddProperty(req, obj->id, prop_id, value);
  }
  
-+/*
-+ * Like set_drm_object_property() but silently returns 0 if the property does
-+ * not exist on the object. Used for optional properties such as plane
-+ * "rotation" that are not exposed by every driver.
-+ */
++/* Missing optional properties are harmless; a failed atomic add is not. */
 +static int set_drm_object_property_optional(drmModeAtomicReq *req, struct drm_object *obj,
 +					    const char *name, uint64_t value)
 +{
-+	int i;
-+	uint32_t prop_id = 0;
++	unsigned int i;
++
++	if (!obj->props)
++		return -EINVAL;
 +
 +	for (i = 0; i < obj->props->count_props; i++) {
-+		if (!strcmp(obj->props_info[i]->name, name)) {
-+			prop_id = obj->props_info[i]->prop_id;
-+			break;
-+		}
++		if (obj->props_info[i] && !strcmp(obj->props_info[i]->name, name))
++			return drmModeAtomicAddProperty(req, obj->id,
++						obj->props_info[i]->prop_id, value);
 +	}
 +
-+	if (prop_id == 0)
-+		return 0;
-+
-+	return drmModeAtomicAddProperty(req, obj->id, prop_id, value);
++	return 0;
 +}
 +
- static bool is_crtc_in_use(struct uterm_video *video, uint32_t crtc_id)
+ static bool is_crtc_in_use(struct video *video, uint32_t crtc_id)
  {
- 	struct shl_dlist *iter;
-@@ -410,6 +434,20 @@ int uterm_drm_prepare_commit(int fd, struct uterm_drm_display *ddrm, drmModeAtom
- 	if (set_drm_object_property(req, plane, "CRTC_H", height) < 0)
+ 	struct display *disp;
+@@ -609,6 +627,12 @@
+ 	if (set_drm_object_property(req, plane, "CRTC_W", width) < 0)
  		return -1;
- 
-+	/*
-+	 * Force the plane "rotation" property back to rotate-0. Some drivers
-+	 * (notably amdgpu when DRM_MODE_PANEL_ORIENTATION is set) leave a
-+	 * non-zero rotation set on the primary plane after VT switches, which
-+	 * would otherwise stack on top of kmscon's software rotation and flip
-+	 * the console upside down on the second activation. The property is
-+	 * optional and silently skipped on drivers that do not expose it.
-+	 *
-+	 * Bit values from drm_plane.h:
-+	 *   DRM_MODE_ROTATE_0 = 1<<0 = 0x1
-+	 */
-+	if (set_drm_object_property_optional(req, plane, "rotation", 0x1) < 0)
+ 	if (set_drm_object_property(req, plane, "CRTC_H", height) < 0)
 +		return -1;
 +
++	/* A previous VT owner may leave hardware rotation enabled. kmscon rotates
++	 * in software, so reset the primary plane on every atomic commit. Drivers
++	 * without this optional property and the legacy path remain supported. */
++	if (set_drm_object_property_optional(req, plane, "rotation", DRM_MODE_ROTATE_0) < 0)
+ 		return -1;
+ 
  	if (ddrm->damage_blob_id) {
- 		if (set_drm_object_property(req, plane, "FB_DAMAGE_CLIPS", ddrm->damage_blob_id) <
- 		    0) {
-@@ -1078,6 +1116,60 @@ static bool is_mode_null(drmModeModeInfoPtr mode)
+@@ -1332,6 +1356,48 @@
  	return mode->hdisplay == 0;
  }
  
-+/*
-+ * Read the kernel "panel orientation" connector property and translate it into
-+ * a uterm_panel_orientation value describing the rotation that needs to be
-+ * applied to the rendered framebuffer to compensate for the panel mounting.
-+ *
-+ * The kernel-side enum strings come from drm_panel_orientation_quirks.c:
-+ *   "Normal", "Upside Down", "Left Side Up", "Right Side Up".
-+ */
-+static enum uterm_panel_orientation read_panel_orientation(int fd, drmModeConnector *conn)
++/* Kernel enum values are not clockwise quarter turns; match enum names. */
++static enum panel_orientation read_panel_orientation(int fd, drmModeConnector *conn)
 +{
 +	drmModePropertyPtr prop;
-+	uint64_t value = 0;
++	enum panel_orientation result = PANEL_ORIENTATION_NORMAL;
 +	int i, j;
-+	bool found = false;
-+	enum uterm_panel_orientation result = UTERM_PANEL_ORIENTATION_NORMAL;
 +
 +	if (!conn)
-+		return UTERM_PANEL_ORIENTATION_NORMAL;
++		return result;
 +
-+	for (i = 0; i < conn->count_props; ++i) {
++	for (i = 0; i < conn->count_props; i++) {
 +		prop = drmModeGetProperty(fd, conn->props[i]);
 +		if (!prop)
 +			continue;
-+		if (strcmp(prop->name, "panel orientation") != 0) {
++		if (strcmp(prop->name, "panel orientation")) {
 +			drmModeFreeProperty(prop);
 +			continue;
 +		}
 +
-+		value = conn->prop_values[i];
-+		for (j = 0; j < prop->count_enums; ++j) {
-+			if (prop->enums[j].value != value)
++		for (j = 0; j < prop->count_enums; j++) {
++			if (prop->enums[j].value != conn->prop_values[i])
 +				continue;
-+			if (!strcmp(prop->enums[j].name, "Normal"))
-+				result = UTERM_PANEL_ORIENTATION_NORMAL;
-+			else if (!strcmp(prop->enums[j].name, "Upside Down"))
-+				result = UTERM_PANEL_ORIENTATION_UPSIDE_DOWN;
++			if (!strcmp(prop->enums[j].name, "Upside Down"))
++				result = PANEL_ORIENTATION_UPSIDE_DOWN;
 +			else if (!strcmp(prop->enums[j].name, "Left Side Up"))
-+				result = UTERM_PANEL_ORIENTATION_LEFT;
++				result = PANEL_ORIENTATION_LEFT;
 +			else if (!strcmp(prop->enums[j].name, "Right Side Up"))
-+				result = UTERM_PANEL_ORIENTATION_RIGHT;
-+			found = true;
++				result = PANEL_ORIENTATION_RIGHT;
++			/* Normal and unknown enum names keep the safe default. */
 +			break;
 +		}
 +		drmModeFreeProperty(prop);
 +		break;
 +	}
 +
-+	if (found && result != UTERM_PANEL_ORIENTATION_NORMAL)
-+		log_info("connector %u panel orientation: %d (corrective rotation %d*90 CW)",
-+			 conn->connector_id, (int)value, (int)result);
++	if (result != PANEL_ORIENTATION_NORMAL)
++		log_info("connector %u panel correction: %u clockwise quarter turns",
++			 conn->connector_id, (unsigned int)result);
 +
 +	return result;
 +}
 +
- static void init_modes(struct uterm_display *disp, drmModeConnector *conn)
+ static void init_modes(struct display *disp, drmModeConnector *conn)
  {
- 	struct uterm_video *video = disp->video;
-@@ -1142,6 +1234,7 @@ static void bind_display(struct uterm_video *video, drmModeRes *res, drmModeConn
+ 	struct video *video = disp->video;
+@@ -1396,6 +1462,7 @@
  
  	ddrm->connector.id = conn->connector_id;
- 	disp->dpms = uterm_drm_get_dpms(vdrm->fd, conn);
+ 	disp->dpms = drm_get_dpms(vdrm->fd, conn);
 +	disp->panel_orientation = read_panel_orientation(vdrm->fd, conn);
- 	log_info("display %s DPMS is %s", disp->name, uterm_dpms_to_name(disp->dpms));
+ 	log_info("display %s DPMS is %s", disp->name, dpms_to_name(disp->dpms));
  
  	/* find a crtc for this connector */
-diff --git a/src/uterm_video.c b/src/uterm_video.c
-index 1f95056..6db9676 100644
---- a/src/uterm_video.c
-+++ b/src/uterm_video.c
-@@ -244,6 +244,15 @@ unsigned int uterm_display_get_height(struct uterm_display *disp)
- 	return disp->height;
+diff --git a/src/video/video.c b/src/video/video.c
+--- a/src/video/video.c
++++ b/src/video/video.c
+@@ -244,6 +244,15 @@
  }
  
-+SHL_EXPORT
-+enum uterm_panel_orientation uterm_display_get_panel_orientation(struct uterm_display *disp)
+ SHL_EXPORT
++enum panel_orientation display_get_panel_orientation(struct display *disp)
 +{
 +	if (!disp)
-+		return UTERM_PANEL_ORIENTATION_NORMAL;
++		return PANEL_ORIENTATION_NORMAL;
 +
 +	return disp->panel_orientation;
 +}
 +
- SHL_EXPORT
- int uterm_display_get_state(struct uterm_display *disp)
++SHL_EXPORT
+ int display_get_state(struct display *disp)
  {
-diff --git a/src/uterm_video.h b/src/uterm_video.h
-index 4e8a2ae..7d64607 100644
---- a/src/uterm_video.h
-+++ b/src/uterm_video.h
-@@ -83,6 +83,18 @@ enum uterm_video_action {
- 	UTERM_REFRESH,
+ 	if (!disp || !disp->video)
+diff --git a/src/video/video.h b/src/video/video.h
+--- a/src/video/video.h
++++ b/src/video/video.h
+@@ -74,6 +74,14 @@
+ 	DPMS_UNKNOWN,
  };
  
-+/*
-+ * Rotation that needs to be applied to the rendered framebuffer to compensate
-+ * for a panel mounted in a non-standard orientation (kernel "panel orientation"
-+ * connector property). Values match the rotation in 90 degree CW steps.
-+ */
-+enum uterm_panel_orientation {
-+	UTERM_PANEL_ORIENTATION_NORMAL = 0,
-+	UTERM_PANEL_ORIENTATION_RIGHT,        /* render 90 CW */
-+	UTERM_PANEL_ORIENTATION_UPSIDE_DOWN,  /* render 180 */
-+	UTERM_PANEL_ORIENTATION_LEFT,         /* render 270 CW (i.e. 90 CCW) */
++/* Software correction in clockwise quarter turns, not the kernel enum IDs. */
++enum panel_orientation {
++	PANEL_ORIENTATION_NORMAL = 0,
++	PANEL_ORIENTATION_RIGHT,
++	PANEL_ORIENTATION_UPSIDE_DOWN,
++	PANEL_ORIENTATION_LEFT,
 +};
 +
- struct uterm_video_hotplug {
- 	struct uterm_display *display;
- 	int action;
-@@ -158,6 +170,7 @@ void uterm_display_unregister_cb(struct uterm_display *disp, uterm_display_cb cb
+ typedef void (*video_new_display_cb)(void *data, struct display *disp);
+ typedef void (*video_refresh_display_cb)(void *data, struct display *disp);
+ typedef void (*video_remove_display_cb)(void *data, struct display *disp);
+@@ -140,6 +148,7 @@
  
- unsigned int uterm_display_get_width(struct uterm_display *disp);
- unsigned int uterm_display_get_height(struct uterm_display *disp);
-+enum uterm_panel_orientation uterm_display_get_panel_orientation(struct uterm_display *disp);
- int uterm_display_get_state(struct uterm_display *disp);
- int uterm_display_set_dpms(struct uterm_display *disp, int state);
- int uterm_display_get_dpms(const struct uterm_display *disp);
-diff --git a/src/uterm_video_internal.h b/src/uterm_video_internal.h
-index 96854b4..0eb6e2f 100644
---- a/src/uterm_video_internal.h
-+++ b/src/uterm_video_internal.h
-@@ -92,6 +92,7 @@ struct uterm_display {
+ unsigned int display_get_width(struct display *disp);
+ unsigned int display_get_height(struct display *disp);
++enum panel_orientation display_get_panel_orientation(struct display *disp);
+ int display_get_state(struct display *disp);
+ int display_set_dpms(struct display *disp, enum display_dpms state);
+ enum display_dpms display_get_dpms(const struct display *disp);
+diff --git a/src/video/video_internal.h b/src/video/video_internal.h
+--- a/src/video/video_internal.h
++++ b/src/video/video_internal.h
+@@ -89,6 +89,7 @@
  	unsigned int flags;
  	unsigned int width;
  	unsigned int height;
-+	enum uterm_panel_orientation panel_orientation;
++	enum panel_orientation panel_orientation;
  
- 	struct uterm_video *video;
+ 	struct video *video;
  
 diff --git a/tests/test_text.c b/tests/test_text.c
-index 37270c7..0a38ad1 100644
 --- a/tests/test_text.c
 +++ b/tests/test_text.c
-@@ -14,6 +14,12 @@ void kmscon_font_ref(struct kmscon_font *font) {}
+@@ -15,13 +15,18 @@
  void kmscon_font_unref(struct kmscon_font *font) {}
- void uterm_display_ref(struct uterm_display *disp) {}
- void uterm_display_unref(struct uterm_display *disp) {}
-+const char *uterm_display_name(struct uterm_display *disp) { return "stub"; }
-+enum uterm_panel_orientation
-+uterm_display_get_panel_orientation(struct uterm_display *disp)
+ void display_ref(struct display *disp) {}
+ void display_unref(struct display *disp) {}
++static enum panel_orientation panel;
++enum panel_orientation display_get_panel_orientation(struct display *disp)
 +{
-+	return UTERM_PANEL_ORIENTATION_NORMAL;
++	return panel;
 +}
+ unsigned int display_get_height(struct display *disp)
+ {
+-	return 0;
++	return 480;
+ }
+ unsigned int display_get_width(struct display *disp)
+ {
+-	return 0;
++	return 800;
+ }
  
  static int dummy_set_calls;
- static int dummy_unset_calls;
--- 
-2.51.2
-
+@@ -36,6 +41,12 @@
+ 	dummy_unset_calls++;
+ }
+ 
++static int dummy_rotate(struct kmscon_text *txt, enum Orientation orientation)
++{
++	txt->orientation = orientation;
++	return 0;
++}
++
+ static struct kmscon_text_ops dummy_ops = {
+ 	.name = "dummytest",
+ 	.owner = NULL,
+@@ -43,7 +54,48 @@
+ 	.destroy = NULL,
+ 	.set = dummy_set,
+ 	.unset = dummy_unset,
++	.rotate = dummy_rotate,
+ };
++
++static void test_panel_orientation(void)
++{
++	static const char *rotations[] = {"normal", "right", "upside-down", "left"};
++	struct display *disp = (struct display *)0x1; /* opaque to the stubs */
++	struct kmscon_font font = {0}, other_font = {0};
++	struct kmscon_text *txt;
++	unsigned int p, u, effective, turn;
++
++	assert(kmscon_text_register(&dummy_ops) == 0);
++	for (p = 0; p < 4; p++) {
++		panel = p;
++		for (u = 0; u < 4; u++) {
++			/* An unknown backend exercises the fallback constructor too. */
++			assert(kmscon_text_new(&txt, "missing", rotations[u], disp) == 0);
++			effective = (p + u) % 4;
++			assert(kmscon_text_get_orientation(txt) == effective);
++			/* Font sizing happens before set() in 10.0. */
++			assert(kmscon_text_get_width(txt) == (effective % 2 ? 480 : 800));
++			assert(kmscon_text_get_height(txt) == (effective % 2 ? 800 : 480));
++			assert(kmscon_text_set(txt, &font) == 0);
++			assert(kmscon_text_set(txt, &font) == 0);
++			assert(kmscon_text_set(txt, &other_font) == 0);
++			assert(kmscon_text_get_orientation(txt) == effective);
++			for (turn = 0; turn < 4; turn++) {
++				effective = (effective + 1) % 4;
++				assert(kmscon_text_rotate(txt, effective) == 0);
++				kmscon_text_unset(txt);
++				assert(kmscon_text_set(txt, &font) == 0);
++				assert(kmscon_text_get_orientation(txt) == effective);
++			}
++			kmscon_text_unref(txt);
++		}
++		assert(kmscon_text_new(&txt, NULL, NULL, disp) == 0);
++		assert(kmscon_text_get_orientation(txt) == p);
++		kmscon_text_unref(txt);
++	}
++	kmscon_text_unregister(dummy_ops.name);
++	assert(kmscon_text_rotate(NULL, OR_NORMAL) == -EINVAL);
++}
+ 
+ int main(void)
+ {
+@@ -72,5 +124,7 @@
+ 	assert(ret == -EINVAL);
+ 	assert(dummy_set_calls == 1); /* not called again */
+ 
++	test_panel_orientation();
++
+ 	return 0;
+ }

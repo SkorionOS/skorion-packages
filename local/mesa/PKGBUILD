@@ -23,7 +23,7 @@ pkgname=(
 )
 # pkgver=25.3.0
 # _pkgver=${pkgver/[a-z]/-&}
-_pkgver=26.2.1
+_pkgver=26.2.4
 pkgver=${_pkgver//-/.}.sk
 pkgrel=1
 epoch=1
@@ -155,7 +155,7 @@ for _crate in "${!_crates[@]}"; do
   )
 done
 
-b2sums=('f5ec3451d18da9336d775259dd0d3f0c73c81d0857ba7da32dd296aba258ad5b8424fb8781582a838375e99710451d2aaeda94def604ad006e5a5a378b44d30a'
+b2sums=('28506a9366e3c031acbb52924e43b0ec098f44a3ac3bb839ec2a86fa0faf83652347704b0e58bdc447aaebae5a2a254e5456e0b893755fd7721e57d6b614ecc4'
         'SKIP'
         '5fed0ea98fea7b72e9d015bddbc5337d936eb3a07f358e29421d081e76bf927bc270be5ef98e38b969b0a59a362c5b330554b446f81627821f52b2fbea0bb12c'
         '431439d31632d177aeb15f910b4f546efa76d54fc74fc8e140399dc5e54eca33fd606f11dbfb48fa83067c8474ee512e62751895d5948367b65ab08b984284e5'
@@ -189,7 +189,7 @@ b2sums=('f5ec3451d18da9336d775259dd0d3f0c73c81d0857ba7da32dd296aba258ad5b8424fb8
         '93385f64103fdb482bec34c7912474ae7a5935948715e6eb9a54907e0db5c39f089f6cd393bab33c935c59a1bbb0f4099431f206343811c1a450554d96a35756')
 
 # https://docs.mesa3d.org/relnotes.html
-sha256sums=('c47e81bddc4760360a41ac3c5acec38acb81f9d750ecef47e7f3adc7021a4442'
+sha256sums=('bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9'
             'SKIP'
             'b8aa498d22c9bbaf482329839bc5620c46be275a19a812e9a22a2b07529a642a'
             '67914ab451f3bfd2e69e5e9d2ef3858484e7074d63f204fd166ec391b54de21d'
@@ -316,6 +316,7 @@ package_mesa() {
     libxshmfence
     libxxf86vm
     llvm-libs
+    libLLVM.so # makepkg records the SONAME actually needed by this split
     lm_sensors
     spirv-tools
     wayland
@@ -405,6 +406,7 @@ package_opencl-mesa() {
     libdrm
     libelf
     llvm-libs
+    libLLVM.so # makepkg records the SONAME actually needed by this split
     spirv-llvm-translator
     spirv-tools
     zlib
@@ -606,6 +608,7 @@ package_vulkan-radeon() {
     libxcb
     libxshmfence
     llvm-libs
+    libLLVM.so # makepkg records the SONAME actually needed by this split
     spirv-tools
     systemd-libs
     vulkan-icd-loader
@@ -636,6 +639,7 @@ package_vulkan-swrast() {
     libxcb
     libxshmfence
     llvm-libs
+    libLLVM.so # makepkg records the SONAME actually needed by this split
     spirv-tools
     systemd-libs
     vulkan-icd-loader

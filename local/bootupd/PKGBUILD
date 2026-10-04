@@ -1,21 +1,25 @@
 # Maintainer: Tulip Blossom (tulilirockz@proton.me)
 
 pkgname=bootupd
-pkgver=0.2.35.r0.g8ecc2e7
+# Versions previously described unrelated coreos/bootupd main (up to 0.3.2.r13).
+# Keep this epoch when updating the retained systemd-boot fork.
+epoch=1
+pkgver=0.2.29.sdboot.r1371.g7db29c7
 pkgrel=1
 pkgdesc="Bootloader updater"
 arch=('x86_64' 'i686' 'armv6h' 'armv7h')
 url="https://docs.fedoraproject.org/en-US/fedora-coreos/bootloader-updates/"
 _repo_name="coreos-$pkgname"
-_upstream_url="https://github.com/coreos/$pkgname"
 _url="https://github.com/p5/$_repo_name"
 license=('Apache-2.0')
 depends=(gcc-libs
-  glibc)
+  glibc
+  openssl)
 makedepends=(cargo
   make
-  git)
-provides=("bootupd=$pkgver")
+  git
+  pkgconf)
+provides=("bootupd=$epoch:$pkgver")
 source=("git+$_url#branch=sdboot-support")
 b2sums=('SKIP')
 
@@ -26,12 +30,17 @@ prepare() {
 
 pkgver() {
   cd "$_repo_name"
-  git clone "${_upstream_url}" tmp &>/dev/null
-  pushd tmp &>/dev/null
-  git describe --long --tags --abbrev=7 --match="v*" HEAD |
-    sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
-  popd &>/dev/null
-  rm -rf tmp &>/dev/null
+  local _version _revision _commit
+  # Describe the checkout we actually build, not tags from another repository.
+  _version=$(awk -F '"' '
+    /^\[package\]$/ { in_package=1; next }
+    /^\[/ { in_package=0 }
+    in_package && /^version[[:space:]]*=/ { print $2; exit }
+  ' Cargo.toml)
+  [[ -n "$_version" ]] || return 1
+  _revision=$(git rev-list --count HEAD) || return
+  _commit=$(git rev-parse --short=7 HEAD) || return
+  printf '%s.sdboot.r%s.g%s\n' "$_version" "$_revision" "$_commit"
 }
 
 build() {

@@ -1,0 +1,30 @@
+# Based on the AUR source recipe by Tommy Falkowski.
+pkgname=sx
+pkgver=2.5.0
+pkgrel=1
+pkgdesc='Multi-engine web search from the command line'
+arch=('x86_64' 'aarch64')
+url='https://github.com/byteowlz/sx'
+license=('MIT')
+conflicts=('sx-bin' 'sx-search' 'sx-search-bin')
+makedepends=('go>=1.25')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('34716babb85b6775b9cf4dfbc97143db351a99f236d7b8963a2d5fa5818c7f32')
+
+build() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    export CGO_ENABLED=0
+    export GOTOOLCHAIN=local
+    go build -trimpath -mod=readonly -ldflags="-s -w -X main.version=${pkgver}" -o sx .
+}
+
+check() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    CGO_ENABLED=0 GOTOOLCHAIN=local go test -mod=readonly ./...
+}
+
+package() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    install -Dm755 sx "${pkgdir}/usr/bin/sx"
+    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

@@ -35,7 +35,8 @@ fi
 if [ "$PACKAGE_NAME" == "bilibili-bin" ]; then
   echo "  → Adding skorion repository"
   sed -i '/^\[core\]/i [skorion]\nSigLevel = Optional TrustAll\nServer = https://github.com/SkorionOS/skorion-packages/releases/download/latest\n' /etc/pacman.conf
-  DEPENDENCIES_PACKAGES+=" electron28-bin"
+  # Resolve Bilibili's versioned Electron dependency from its current PKGBUILD.
+  # Do not additionally install the unsupported Electron 28 runtime.
 fi
 
 if [[ "$PACKAGE_NAME" == "sk-chos-tool" || "$PACKAGE_NAME" == "sk-chos-addon" ]]; then

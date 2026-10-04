@@ -1,0 +1,20 @@
+# Based on the AUR recipe by Isabella Basso do Amaral.
+pkgname=fpaste
+pkgver=0.5.0.0
+pkgrel=1
+pkgdesc='A command-line client for the Fedora community paste service'
+arch=('any')
+url='https://codeberg.org/sanjay_ankur/fpaste'
+license=('GPL-3.0-or-later')
+depends=('python')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/${pkgver}.tar.gz")
+sha256sums=('3224fca9931d64ccc092aef3469d9ce6d16e6734a73bbbd9ac0d156c4c45829f')
+
+package() {
+    # Codeberg's release archive uses the project name without a version suffix.
+    cd "${srcdir}/${pkgname}"
+    install -Dm755 fpaste "${pkgdir}/usr/bin/fpaste"
+    install -Dm644 docs/man/en/fpaste.1 "${pkgdir}/usr/share/man/man1/fpaste.1"
+    install -Dm644 completions/bash/fpaste.bash \
+        "${pkgdir}/usr/share/bash-completion/completions/fpaste"
+}

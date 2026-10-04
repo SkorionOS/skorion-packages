@@ -1,0 +1,30 @@
+# Based on the AUR recipe by Benjamin Abendroth and Francesco Minnocci.
+pkgname=nbfc-linux
+pkgver=0.5.3
+pkgrel=1
+pkgdesc='Lightweight C port of NoteBook FanControl (no Mono required)'
+arch=('i686' 'x86_64')
+url='https://github.com/nbfc-linux/nbfc-linux'
+license=('GPL-3.0-only')
+conflicts=('nbfc')
+provides=('nbfc')
+# 0.5 adds Lua configurations and XML import. Keep the existing ACPI providers.
+depends=('glibc' 'curl' 'openssl' 'acpica' 'acpi_call' 'lua54' 'libxml2')
+makedepends=('autoconf' 'automake' 'pkgconf')
+optdepends=('python-matplotlib: graph recorded fan data')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz")
+sha256sums=('08c6cf142ef9d07207a1ca7a8414782de3c3f891b88083fa546f07938ef5c866')
+
+build() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    ./autogen.sh
+    ./configure --prefix=/usr --sysconfdir=/etc --bindir=/usr/bin \
+        --localstatedir=/var --runstatedir=/run --with-init-system=systemd
+    make
+}
+
+package() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    # Install the service without enabling it or changing the user's fan config.
+    make DESTDIR="${pkgdir}" install
+}

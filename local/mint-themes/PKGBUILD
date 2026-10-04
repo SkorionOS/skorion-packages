@@ -1,12 +1,11 @@
 # Maintainer: Sam Burgos <santiago.burgos1089@gmail.com>
 
 pkgname=mint-themes
-pkgver=2.4.0
+pkgver=2.4.2
 pkgrel=1
 pkgdesc='A collection of Mint themes.'
 arch=('any')
 url="https://github.com/linuxmint/mint-themes"
-_url="http://packages.linuxmint.com/pool/main/m/${pkgname}"
 license=('GPL-3.0-or-later')
 depends=(
     'ttf-ubuntu-font-family'
@@ -19,16 +18,17 @@ optdepends=(
     'mint-y-icons'
 )
 options=('!strip')
-source=("${pkgname}_${pkgver}.tar.xz::${_url}/${pkgname}_${pkgver}.tar.xz")
-sha256sums=('2f3bc5f8b51d5f5da8ebb6c937cc2855185eef97f32d595a6c95c242f84056cc')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz")
+sha256sums=('8dccea7534986857ab1358f45edd42022bbbc20fde78865df649e98a7427103d')
 
 build() {
-    cd "$pkgname"
+    cd "$pkgname-$pkgver"
     make clean
     make
 }
 
 package() {
-    cd "$pkgname"
-    cp -r usr "$pkgdir/"
+    cd "$pkgname-$pkgver"
+    # Keep upstream symlinks, rather than copying their targets.
+    cp -a usr "$pkgdir/"
 }

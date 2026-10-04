@@ -1,5 +1,5 @@
 pkgname=bootc
-pkgver=1.16.9
+pkgver=1.16.14
 pkgrel=1
 pkgdesc="Boot and upgrade via container images"
 arch=('x86_64' 'i686' 'armv6h' 'armv7h')
@@ -7,13 +7,25 @@ url="https://bootc-dev.github.io/bootc"
 license=('MIT OR Apache-2.0')
 depends=(gcc-libs
   glibc
-  ostree)
+  libselinux
+  openssl
+  ostree
+  podman
+  skopeo
+  systemd
+  util-linux
+  zstd)
+# libselinux's Rust bindings require libclang; xtask uses go-md2man.
 makedepends=(cargo
-  git)
+  clang
+  git
+  go-md2man
+  make
+  pkgconf)
 provides=("bootc=$pkgver")
 conflicts=('bootc')
 source=("https://github.com/bootc-dev/bootc/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('0c43b1f9167f1889156c0a6d00461fc4c926bce71af8f5304a2857a5377b553e')
+sha256sums=('be63615959d74d23d098c79027e1759734b9e77bb1bc2e0ad27a2deccef5fda0')
 # options=(!lto)
 
 prepare() {
@@ -25,12 +37,20 @@ build() {
   cd "$pkgname-$pkgver"
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
-  cargo build --release --frozen
+  # Build all upstream binaries, man pages and shell completions before fakeroot.
+  CARGO_NET_OFFLINE=true make completion
 }
 
 package() {
   cd "$pkgname-$pkgver"
-  install -Dm755 target/release/bootc -t "${pkgdir}/usr/bin"
+  # completion was built above; do not compile or run bootc again in fakeroot.
+  make -o completion install DESTDIR="${pkgdir}" prefix=/usr
+  make install-ostree-hooks DESTDIR="${pkgdir}" prefix=/usr
+  # Arch builds ostree with --libexecdir=/usr/lib. Keep upstream's hooks,
+  # but put them in Arch's lookup path; the relative link depth is unchanged.
+  install -dm755 "${pkgdir}/usr/lib/libostree"
+  mv "${pkgdir}/usr/libexec/libostree/ext" "${pkgdir}/usr/lib/libostree/"
+  rmdir --ignore-fail-on-non-empty "${pkgdir}/usr/libexec/libostree" "${pkgdir}/usr/libexec"
   install -Dm755 -d "${pkgdir}/usr/share/doc/$pkgname"
   cp -Rv docs/src/* "${pkgdir}/usr/share/doc/$pkgname/"
   install -Dm644 LICENSE-APACHE -t "${pkgdir}/usr/share/licenses/$pkgname/"

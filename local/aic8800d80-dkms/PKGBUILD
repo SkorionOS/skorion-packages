@@ -1,0 +1,46 @@
+# Maintainer: SkorionOS
+# Based on the AUR recipe maintained by XNicON.
+pkgname=aic8800d80-dkms
+_srcname=aic8800d80
+_dkmsname=aic8800
+pkgver=1.0.0.r109.gb72eea9
+pkgrel=1
+pkgdesc='AIC8800 USB Wi-Fi and Bluetooth driver sources and matched firmware'
+arch=('x86_64')
+url='https://github.com/shenmintao/aic8800d80'
+license=('GPL2')
+depends=('dkms' 'usb_modeswitch' 'util-linux')
+makedepends=('git')
+source=("${_srcname}::git+${url}.git#branch=main")
+sha256sums=('SKIP')
+
+# Keep the existing main hardware profile. MCU1 devices require the separate
+# upstream legacy-mcu1 profile; never mix firmware from those two branches.
+pkgver() {
+  cd "${srcdir}/${_srcname}"
+  local driver_version
+  driver_version=$(sed -n 's/^PACKAGE_VERSION="\([^"]*\)"$/\1/p' dkms.conf)
+  [[ $driver_version =~ ^[0-9]+([.][0-9]+)*$ ]] || return 1
+  printf '%s.r%s.g%s' "$driver_version" "$(git rev-list --count HEAD)" \
+    "$(git rev-parse --short=7 HEAD)"
+}
+
+package() {
+  cd "${srcdir}/${_srcname}"
+  local dkms_dir="${pkgdir}/usr/src/${_dkmsname}-${pkgver}"
+
+  # Install only build inputs, not the upstream installer or its Git database.
+  install -dm755 "${dkms_dir}/drivers"
+  cp -dr --no-preserve=ownership drivers/aic8800 "${dkms_dir}/drivers/"
+  install -m644 dkms.conf "${dkms_dir}/dkms.conf"
+  sed -i "s/^PACKAGE_VERSION=.*/PACKAGE_VERSION=\"${pkgver}\"/" "${dkms_dir}/dkms.conf"
+
+  # The current driver selects firmware by chip revision. Keep all variants
+  # from this same source revision together, as the upstream installer does.
+  install -dm755 "${pkgdir}/usr/lib/firmware"
+  cp -dr --no-preserve=ownership fw/aic8800* "${pkgdir}/usr/lib/firmware/"
+  install -Dm644 aic.rules "${pkgdir}/usr/lib/udev/rules.d/aic.rules"
+  install -Dm644 usb_modeswitch/1111_1111 \
+    "${pkgdir}/etc/usb_modeswitch.d/1111:1111"
+  install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+}

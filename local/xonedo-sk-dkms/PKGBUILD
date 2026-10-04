@@ -4,15 +4,17 @@
 _pkgname=xonedo
 pkgname=xonedo-sk-dkms
 pkgver=0.5.8.r1.gf97d11e
-pkgrel=1
+pkgrel=2
 pkgdesc='Modern Linux driver for Xbox One and Xbox Series X|S controllers via the official dongle only'
 arch=('x86_64')
 url='https://github.com/honjow/xonedo.git'
 license=('GPL2')
-depends=('dkms')
+# This fork requests PID-specific xone_dongle_*.bin, not xow_dongle.bin.
+depends=('dkms' 'xone-dongle-firmware>=2.0.0')
 makedepends=('git')
-conflicts=('xone-dkms'
-		   'xow')
+conflicts=('xonedo-dkms'
+           'xone-dkms'
+           'xow')
 provides=('xone-dkms')
 source=("git+https://github.com/honjow/xonedo.git")
 sha256sums=('SKIP')
@@ -30,7 +32,10 @@ package() {
 
   echo "* Copying module into /usr/src..."
   install -dm755 "${pkgdir}/usr/src/${_pkgname}-${pkgver}"
-  cp -r ${srcdir}/$_pkgname/* "${pkgdir}/usr/src/${_pkgname}-${pkgver}"
+  cp -r "${srcdir}/${_pkgname}/"* "${pkgdir}/usr/src/${_pkgname}-${pkgver}"
+  # DKMS package identity must match /usr/src; kernel module names stay xone_*.
+  sed -i "s/^PACKAGE_NAME=\"xone\"$/PACKAGE_NAME=\"${_pkgname}\"/" \
+    "${pkgdir}/usr/src/${_pkgname}-${pkgver}/dkms.conf"
 
   echo "* Blacklisting required wireless module..."
   install -D -m 644 install/modprobe.conf "${pkgdir}/usr/lib/modprobe.d/xonedo-blacklist.conf"

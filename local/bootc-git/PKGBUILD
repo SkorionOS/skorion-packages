@@ -1,8 +1,9 @@
 
 pkgname=bootc-git
 _pkgname=bootc
-pkgver=1.16.14.r33.g1857859
-pkgrel=2
+# Match current source so makepkg preserves the metadata-only release bump.
+pkgver=1.16.14.r70.g66d4e4d
+pkgrel=3
 pkgdesc="Boot and upgrade via container images"
 arch=('x86_64' 'i686' 'armv6h' 'armv7h')
 url="https://bootc-dev.github.io/bootc"
@@ -55,4 +56,9 @@ package() {
   
   # Install ostree integration hooks (optional but recommended)
   make install-ostree-hooks DESTDIR="${pkgdir}" prefix=/usr
+  # Arch builds ostree with --libexecdir=/usr/lib. Keep upstream's hooks,
+  # but put them in Arch's lookup path; the relative link depth is unchanged.
+  install -dm755 "${pkgdir}/usr/lib/libostree"
+  mv "${pkgdir}/usr/libexec/libostree/ext" "${pkgdir}/usr/lib/libostree/"
+  rmdir --ignore-fail-on-non-empty "${pkgdir}/usr/libexec/libostree" "${pkgdir}/usr/libexec"
 }

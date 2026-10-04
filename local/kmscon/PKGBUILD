@@ -6,7 +6,7 @@
 # Contributor: David Herrmann <dh.herrmann@googlemail dot com>
 
 pkgname=kmscon
-pkgver=9.3.3
+pkgver=10.0.4
 pkgrel=1
 pkgdesc='Kernel Mode Setting (KMS) and DRM based virtual Console Emulator'
 arch=('x86_64')
@@ -15,10 +15,12 @@ license=('MIT')
 backup=('etc/kmscon/kmscon.conf')
 depends=(
   bash
+  dbus
   glib2
   glibc
   libdrm
-  libtsm
+  'libtsm>=4.8.0'
+  "kmscon-terminfo>=$pkgver"
   libxkbcommon
   systemd-libs
   zlib
@@ -38,31 +40,37 @@ optdepends=(
   'fontconfig: for freetype font rendering'
   'inotify-tools: for kmscon-launch-gui waiting mechanism'
   'libglvnd: for accelerated video output'
+  'libx11: for XKB compose support'
   'pango: for pango font rendering'
 )
 source=(
-  git+${url}.git#tag=v${pkgver}
+  "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
   "0001-auto-detect-panel-orientation.patch"
 )
-sha256sums=('SKIP'
-            '60fb0838a043f32e86714f26f31a3c2f270de1239ae45efed00b904b8434f939')
+sha256sums=('6918c748c26e9c8cfe81783400be3732792a73e532d6235f40c4b332ca4fde0b'
+            '567a0adfcdd1ef6a8b02a6d8de173b991a115cf553458c7dd55e4537eedb67c4')
 
 prepare() {
-    cd ${srcdir}/${pkgname}
-
-    local src
-    for src in "${source[@]}"; do
-        [[ $src = *.patch ]] || continue
-        patch -p1 < "${srcdir}"/$src
-    done
+  cd "$srcdir/$pkgname-$pkgver"
+  patch --batch --forward --fuzz=0 -p1 < "$srcdir/0001-auto-detect-panel-orientation.patch"
 }
 
 build() {
-  arch-meson "$pkgname" build
+  arch-meson "$pkgname-$pkgver" build \
+    --wrap-mode=nofallback \
+    -Ddbus=enabled \
+    -Dtests=true
   meson compile -C build
+}
+
+check() {
+  meson test -C build --print-errorlogs
 }
 
 package() {
   meson install -C build --destdir="$pkgdir"
-  install -Dm644 $pkgname/COPYING "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+  install -Dm644 "$pkgname-$pkgver/COPYING" "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+  # Arch's split package owns these files. Keep TERM=kmscon functional through
+  # the runtime dependency without colliding with an installed kmscon-terminfo.
+  rm -r "$pkgdir/usr/share/terminfo"
 }

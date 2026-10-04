@@ -1,21 +1,31 @@
 # Maintainer: honjow
 # shellcheck disable=SC2034,SC2148
 pkgname=cursor-byok
-pkgver=0.0.49
+pkgver=1.0.1
 pkgrel=1
 pkgdesc="Infinite BYOK in Cursor - 自由选择模型，集成自定义模型 API"
 arch=('x86_64')
 url="https://github.com/leookun/cursor-byok"
-license=('custom')
-depends=('glibc')
+license=('MIT')
+# Direct ELF dependencies plus the dynamically loaded Tauri tray library.
+depends=('glibc' 'gcc-libs' 'webkit2gtk-4.1' 'gtk3' 'libsoup3' 'openssl'
+         'wayland' 'glib2' 'cairo' 'gdk-pixbuf2' 'dbus' 'libayatana-appindicator')
 source=("${pkgname}-${pkgver}-linux-amd64.tar.gz::${url}/releases/download/v${pkgver}/${pkgname}-${pkgver}-linux-amd64.tar.gz"
+        "${pkgname}-${pkgver}-source.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
         "${pkgname}.desktop")
-sha256sums=('5199f17109821520fd2ca819eb16d8b2f8fa6b17f638be279f09cec0f8d35a97'
-            'd72558cad1b94fdb1c75d79ed02ebac473f6683716df494cee52bfefec10636c')
+sha256sums=('523f56e168497cee0147ee6234f458664a472032ad599b3d0faf8083ca022a44'
+            '7973ab17ecbc4e4359f575612430ac272c6a932344cc036fb4a821dc0a3964c1'
+            '74550bc1b3589291abf44899dd3dfc491d5395f97a765ea4e4f9299f20fe4c9f')
 
 options=(!strip)
 
 package() {
-    install -Dm755 "${srcdir}/Cursor助手" "${pkgdir}/usr/bin/cursor-byok"
+    install -Dm755 "${srcdir}/cursor-byok-desktop" "${pkgdir}/usr/bin/cursor-byok"
     install -Dm644 "${srcdir}/${pkgname}.desktop" "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+    install -Dm644 "${srcdir}/${pkgname}-${pkgver}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    local size
+    for size in 32 128 256 512; do
+        install -Dm644 "${srcdir}/${pkgname}-${pkgver}/apps/desktop/src-tauri/icons/linux-${size}x${size}.png" \
+            "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/${pkgname}.png"
+    done
 }
