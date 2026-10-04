@@ -7,7 +7,8 @@ arch=('any')
 url='https://github.com/Aryan20/Logomenu'
 license=('GPL-2.0-or-later')
 # The unmodified upstream metadata declares GNOME Shell 49, 50 and 51.
-depends=('gnome-shell>=49' 'gnome-shell<52')
+# Arch's gnome-shell package uses epoch 1; both bounds must include it.
+depends=('gnome-shell>=1:49' 'gnome-shell<1:52')
 makedepends=('gettext' 'glib2' 'unzip')
 source=("Logomenu-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=('7897b12ebf32c2d323e20430589b08136e61138b096c38b7208cdc31efbab592')

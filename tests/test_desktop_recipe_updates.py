@@ -3,6 +3,7 @@
 Run: python -m unittest discover -s tests -p test_desktop_recipe_updates.py -v
 Optionally set DESKTOP_SOURCE_CACHE to a directory containing the exact source
 archives named by the recipes to check their SHA256 and upstream source layout.
+Set VERCMP to pacman's vercmp (or install it on PATH) to check epoch-aware bounds.
 These tests do not replace clean Arch builds or GNOME/fan-control runtime tests.
 """
 import ast
@@ -20,6 +21,7 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+VERCMP = os.environ.get("VERCMP") or shutil.which("vercmp")
 VERSIONS = {
     "cursor-byok": "1.0.1",
     "mint-themes": "2.4.2",
@@ -184,8 +186,33 @@ class DesktopRecipeTests(unittest.TestCase):
         self.assertTrue((self.pkg / "usr/share/glib-2.0/schemas/org.gnome.shell.extensions.logo-menu.gschema.xml").is_file())
         self.assertFalse((self.pkg / "usr/share/glib-2.0/schemas/gschemas.compiled").exists())
         self.assertTrue((self.pkg / "usr/share/locale/en/LC_MESSAGES/logo-menu.mo").is_file())
-        self.assertEqual(metadata("gnome-shell-extension-logo-menu", "depends"), ["gnome-shell>=49", "gnome-shell<52"])
+        self.assertEqual(metadata("gnome-shell-extension-logo-menu", "depends"), ["gnome-shell>=1:49", "gnome-shell<1:52"])
         self.assertNotIn("gnome-extensions install", recipe("gnome-shell-extension-logo-menu").read_text())
+
+    @unittest.skipUnless(VERCMP, "set VERCMP or install pacman's vercmp for epoch-aware bounds")
+    def test_logo_gnome_bounds_use_arch_epoch(self):
+        dependencies = metadata("gnome-shell-extension-logo-menu", "depends")
+        lower = next(dep.removeprefix("gnome-shell>=") for dep in dependencies
+                     if dep.startswith("gnome-shell>="))
+        upper = next(dep.removeprefix("gnome-shell<") for dep in dependencies
+                     if dep.startswith("gnome-shell<"))
+
+        def compare(version, bound):
+            return int(subprocess.check_output([VERCMP, version, bound], text=True).strip())
+
+        for version, supported in (
+            ("1:48.10-1", False),
+            ("1:49-1", True),
+            ("1:49.5-2", True),
+            ("1:50.5-1", True),
+            ("1:51.0-1", True),
+            ("1:51.99-9", True),
+            ("1:52-1", False),
+            ("1:52.0-1", False),
+        ):
+            with self.subTest(version=version):
+                self.assertEqual(compare(version, lower) >= 0 and compare(version, upper) < 0,
+                                 supported)
 
 
 @unittest.skipUnless(os.environ.get("DESKTOP_SOURCE_CACHE"), "set DESKTOP_SOURCE_CACHE for downloaded-source validation")
