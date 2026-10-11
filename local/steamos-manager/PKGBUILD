@@ -4,7 +4,7 @@
 
 pkgname=steamos-manager
 # _srctag=v25.4.1.sk3
-pkgver=26.4.1.dev1.r0.gd906535
+pkgver=26.4.1.r780.g55c6bd6
 pkgrel=1
 pkgdesc='SteamOS Manager daemon for running various system management tasks'
 arch=('x86_64')
@@ -24,7 +24,18 @@ replaces=('ds-inhibit')
 
 pkgver() {
   cd "${pkgname}"
-  git describe --long --tags | sed 's/\([^-]*-g\)/r\1/;s/-/./g;s/^v//'
+  local _version _revision _commit
+  # A rebase can make git describe select an older tag; use the built crate.
+  _version=$(awk -F '"' '
+    /^\[package\]$/ { in_package=1; next }
+    /^\[/ { in_package=0 }
+    in_package && /^version[[:space:]]*=/ { print $2; exit }
+  ' steamos-manager/Cargo.toml)
+  [[ "$_version" =~ ^[0-9]+(\.[0-9]+)+$ ]] || return 1
+  _revision=$(git rev-list --count HEAD) || return
+  _commit=$(git rev-parse --short=7 HEAD) || return
+  [[ "$_revision" =~ ^[0-9]+$ && "$_commit" =~ ^[0-9a-f]{7,}$ ]] || return 1
+  printf '%s.r%s.g%s\n' "$_version" "$_revision" "$_commit"
 }
 
 prepare() {
