@@ -1,13 +1,13 @@
 # Maintainer: William Edwards <shadowapex@gmail.com>
 pkgname=inputplumber-git
 _pkgbase=inputplumber
-pkgver=v0.78.0.dev1.r2.gdaea7e7
+pkgver=v0.82.0.r97.g86b0c6a
 pkgrel=1
 pkgdesc="Open source input router and remapper daemon for Linux"
 arch=('x86_64')
 url="https://github.com/honjow/InputPlumber"
 license=('GPL')
-depends=('dbus' 'libevdev' 'libiio')
+depends=('dbus' 'libevdev')
 makedepends=('rust' 'make' 'cmake' 'clang' 'git')
 provides=('inputplumber')
 conflicts=('inputplumber-bin')
@@ -25,6 +25,24 @@ pkgver() {
 
 prepare() {
 	cd "$srcdir/${_pkgbase}"
+	# The fork may omit upstream release tags. Update this tag and commit together
+	# when rebasing dev onto a newer stable release; keep pkgver() based on git describe.
+	local upstream_tag=v0.82.0
+	local upstream_commit=d951ef9df713a3ad3a88645a8c07b79ea5592274
+	local tag_commit
+	if ! git show-ref --verify --quiet "refs/tags/${upstream_tag}"; then
+		git fetch --no-tags https://github.com/ShadowBlip/InputPlumber.git \
+			"refs/tags/${upstream_tag}:refs/tags/${upstream_tag}" || return 1
+	fi
+	tag_commit=$(git rev-parse --verify "refs/tags/${upstream_tag}^{commit}") || return 1
+	if [[ "$tag_commit" != "$upstream_commit" ]]; then
+		printf 'ERROR: %s does not match the pinned upstream commit.\n' "$upstream_tag" >&2
+		return 1
+	fi
+	if ! git merge-base --is-ancestor "$upstream_commit" HEAD; then
+		printf 'ERROR: %s is not an ancestor of the checked-out dev source.\n' "$upstream_tag" >&2
+		return 1
+	fi
 }
 
 build() {
