@@ -98,13 +98,13 @@ check() {
 import json, pathlib, sys
 expected = {
     "platform-sensors", "battery-fixtures", "intel-fallbacks",
-    "intel-drm-resources", "gpu-lifetime",
+    "intel-drm-resources", "gpu-lifetime", "validate metainfo file",
 }
 tests = json.loads(pathlib.Path(sys.argv[1]).read_text())
 names = [test["name"] for test in tests]
 print("Candidate Meson suites:", ", ".join(sorted(names)), flush=True)
-if len(tests) != 5 or set(names) != expected:
-    raise SystemExit(f"Expected exactly the five candidate suites; found {names!r}")
+if len(tests) != 6 or set(names) != expected:
+    raise SystemExit(f"Expected the five candidate suites plus the existing metainfo validation; found {names!r}")
 PY
 
     meson test -C build --no-rebuild --print-errorlogs || test_status=$?
@@ -114,7 +114,7 @@ PY
 import json, pathlib, sys
 expected = {
     "platform-sensors", "battery-fixtures", "intel-fallbacks",
-    "intel-drm-resources", "gpu-lifetime",
+    "intel-drm-resources", "gpu-lifetime", "validate metainfo file",
 }
 results = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
 for result in results:
@@ -122,11 +122,11 @@ for result in results:
                      ("name", "result", "returncode", "duration", "stdout", "stderr")},
                      ensure_ascii=False), flush=True)
 names = [result["name"].split(" / ")[-1].rsplit(":", 1)[-1] for result in results]
-if len(results) != 5 or set(names) != expected:
-    raise SystemExit(f"Expected results for all five suites; found {names!r}")
+if len(results) != 6 or set(names) != expected:
+    raise SystemExit(f"Expected results for all six registered tests; found {names!r}")
 if any(result.get("result") != "OK" or result.get("returncode") != 0 for result in results):
-    raise SystemExit("All five suites must pass; skips, expected failures and nonzero exits are rejected")
-print("Candidate test gate: 5/5 PASS", flush=True)
+    raise SystemExit("All six tests must pass; skips, expected failures and nonzero exits are rejected")
+print("Candidate test gate: 5/5 fixture suites + 1/1 existing metainfo validation PASS", flush=True)
 PY
 
     return "$test_status"
