@@ -73,10 +73,10 @@ cp PKGBUILD "$CAPTURED_PKGBUILD"
     def test_override_is_scoped_to_the_aur_package(self):
         self.assertEqual(self.run_recipe("unrelated-git", RECIPE), RECIPE)
 
-    def test_custom_fork_keeps_its_source_branch(self):
+    def test_custom_fork_pins_reviewed_candidate(self):
         recipe = (ROOT / "local/mangohud-sk-git/PKGBUILD").read_text()
         self.assertIn("url='https://github.com/honjow/MangoHud'", recipe)
-        self.assertIn('"$_pkgname::git+$url#branch=dev"', recipe)
+        self.assertIn('"$_pkgname::git+$url#commit=d522eb5ac153627b23d3190ecdcba8e44f93423e"', recipe)
 
 
 if __name__ == "__main__":
