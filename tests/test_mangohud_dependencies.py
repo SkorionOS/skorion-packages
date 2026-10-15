@@ -76,7 +76,7 @@ cp PKGBUILD "$CAPTURED_PKGBUILD"
     def test_custom_fork_pins_reviewed_candidate(self):
         recipe = (ROOT / "local/mangohud-sk-git/PKGBUILD").read_text()
         self.assertIn("url='https://github.com/honjow/MangoHud'", recipe)
-        self.assertIn('"$_pkgname::git+$url#commit=d522eb5ac153627b23d3190ecdcba8e44f93423e"', recipe)
+        self.assertIn('"$_pkgname::git+$url#commit=305a576c7a63a546a0727f0b82fd08c1bdbf2eef"', recipe)
 
 
 if __name__ == "__main__":

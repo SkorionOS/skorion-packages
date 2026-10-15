@@ -55,7 +55,7 @@ replaces=('mangoapp')
 conflicts=('mangohud' 'mangohud-common-git' 'mangoapp' 'mangohud-git')
 # _commit=9ebc85dfd1730a95f0334bf14151a02859aa9f97
 source=(
-    "$_pkgname::git+$url#commit=d522eb5ac153627b23d3190ecdcba8e44f93423e"
+    "$_pkgname::git+$url#commit=305a576c7a63a546a0727f0b82fd08c1bdbf2eef"
     )
 sha256sums=('SKIP')
 
