@@ -49,11 +49,12 @@ def array(recipe, name):
 
 class StableMesaRecipeTests(unittest.TestCase):
     def test_bash_syntax_and_coordinated_version(self):
-        for recipe in RECIPES.values():
+        for name, recipe in RECIPES.items():
             with self.subTest(recipe=recipe):
                 subprocess.run(["bash", "-n", str(recipe)], check=True)
                 result = bash(recipe, 'printf "%s\\n" "$_pkgver" "$epoch:$pkgver-$pkgrel"')
-                self.assertEqual(result.stdout.splitlines(), ["26.2.4", "1:26.2.4.sk-1"])
+                release = 2 if name == "lib32-mesa" else 1
+                self.assertEqual(result.stdout.splitlines(), ["26.2.4", f"1:26.2.4.sk-{release}"])
 
     def test_complete_source_manifest_is_verified_and_shared(self):
         manifests = []
@@ -104,12 +105,13 @@ class StableMesaRecipeTests(unittest.TestCase):
             self.assertNotIn("etnaviv", GALLIUM.split(","))
 
     def test_prepare_preserves_cache_version_and_guarded_directx_workaround(self):
-        for recipe in RECIPES.values():
+        for name, recipe in RECIPES.items():
             with tempfile.TemporaryDirectory() as tmp:
                 src = Path(tmp)
                 (src / "mesa-26.2.4").mkdir()
                 bash(recipe, 'srcdir=$PWD; prepare', cwd=src)
-                self.assertEqual((src / "mesa-26.2.4" / "VERSION").read_text(), "26.2.4-arch1.1\n")
+                release = 2 if name == "lib32-mesa" else 1
+                self.assertEqual((src / "mesa-26.2.4" / "VERSION").read_text(), f"26.2.4-arch1.{release}\n")
                 header = (src / "d3d12-infoqueue-fwd.h").read_text()
                 for line in ("#ifndef __ASSEMBLER__", "#ifndef __ID3D12InfoQueue_FWD_DEFINED__",
                              "#ifdef __cplusplus", "struct ID3D12InfoQueue;",
