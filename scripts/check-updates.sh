@@ -20,11 +20,14 @@ REPO_OWNER="${REPO_OWNER:-SkorionOS}"
 REPO_NAME="${REPO_NAME:-skorion-packages}"
 AUR_OUTPUT_FILE="${AUR_OUTPUT_FILE:-updated-aur-packages.txt}"
 LOCAL_OUTPUT_FILE="${LOCAL_OUTPUT_FILE:-updated-local-packages.txt}"
+BLOCKED_OUTPUT_FILE="${BLOCKED_OUTPUT_FILE:-blocked-local-packages.txt}"
 FORCE_REBUILD="${FORCE_REBUILD:-}"
 SKIP_PACKAGES="${SKIP_PACKAGES:-}"
 LOG_LEVEL="${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARN, ERROR
 GH_TOKEN="${GH_TOKEN:-}"
 export LOG_LEVEL  # 导出供子进程使用
+LIB32_MESA_LLVM_CHECK="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/check-lib32-mesa-llvm.py"
+export LIB32_MESA_LLVM_CHECK REPO_OWNER REPO_NAME
 
 # 并发检查配置
 PARALLEL_JOBS="${PARALLEL_JOBS:-8}"  # 并行检查包的数量
@@ -918,6 +921,8 @@ fi
 echo ""
 echo "==> 检查本地包"
 : > "$LOCAL_OUTPUT_FILE"
+: > "$BLOCKED_OUTPUT_FILE"
+BLOCKED_COUNT=0
 
 if [ ! -d "local" ]; then
     echo "==> 无本地包目录"
@@ -966,6 +971,31 @@ else
             fi
         fi
         
+        # LLVM changes need a source-controlled pkgrel bump even when Mesa's
+        # upstream version is unchanged. FORCE_REBUILD must not overwrite the
+        # old version with a different runtime dependency. Do this before both
+        # the forced and ordinary version-only branches. Block only this package:
+        # unrelated packages must still be detected and built normally.
+        if [ "$pkg_name" = "lib32-mesa" ]; then
+            local recipe_version guard_output=""
+            if recipe_version=$(
+                unset epoch pkgver pkgrel
+                source "$pkg_dir/PKGBUILD" || exit 1
+                printf '%s%s-%s\n' "${epoch:+${epoch}:}" "$pkgver" "$pkgrel"
+            ) && guard_output=$(python3 "$LIB32_MESA_LLVM_CHECK" \
+                --recipe-version "$recipe_version" \
+                --repository-db "https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/latest/skorion.db" \
+                --asset-versions "$temp_dir/old_versions.txt" 2>&1); then
+                printf '%s\n' "$guard_output"
+            else
+                guard_output="${guard_output:-Cannot read the lib32-mesa recipe version}"
+                printf '%s\n' "$guard_output" >&2
+                echo "::warning title=lib32-mesa build blocked::LLVM preflight blocked this package. Check the blocked-package summary; bump pkgrel and rebuild after resolving the reported metadata issue." >&2
+                printf 'lib32-mesa: %s\n' "$guard_output" > "$temp_dir/lib32-mesa.blocked"
+                return 0
+            fi
+        fi
+
         # 检查是否在强制重建列表中
         log_debug "  [force-check] Checking if $pkg_name is in force rebuild list: $FORCE_REBUILD_LIST"
         if [ -f "$FORCE_REBUILD_LIST" ] && [ -s "$FORCE_REBUILD_LIST" ]; then
@@ -1003,6 +1033,8 @@ else
     
     # 收集结果
     cat "$temp_dir"/*.build 2>/dev/null > "$LOCAL_OUTPUT_FILE" || true
+    cat "$temp_dir"/*.blocked 2>/dev/null > "$BLOCKED_OUTPUT_FILE" || true
+    BLOCKED_COUNT=$(find "$temp_dir" -maxdepth 1 -name '*.blocked' -type f | wc -l | tr -d ' ')
     
     # 清理临时目录
     rm -rf "$temp_dir"
@@ -1024,6 +1056,10 @@ echo "==> 本地包: $LOCAL_COUNT 个需要构建"
 if [ "$LOCAL_COUNT" -gt 0 ]; then
     echo "    构建列表:"
     cat "$LOCAL_OUTPUT_FILE" | sed 's/^/      - /'
+fi
+if [ "$BLOCKED_COUNT" -gt 0 ]; then
+    echo "==> Blocked local packages: $BLOCKED_COUNT (not queued; unrelated packages continue)"
+    cat "$BLOCKED_OUTPUT_FILE" | sed 's/^/      /'
 fi
 echo "========================================"
 
