@@ -94,6 +94,20 @@ elif [ "$PACKAGE_TYPE" = "local" ]; then
     fi
     
     cd "$PACKAGE_DIR"
+
+    # Recheck the stable family against this builder's synchronized provider,
+    # not the metadata seen by the earlier detection job. LLVM is installed by
+    # pikaur later, so the installed-package database is not usable here.
+    if [ "$PACKAGE_NAME" = "lib32-mesa" ]; then
+        RECIPE_VERSION=$(
+            unset epoch pkgver pkgrel
+            source PKGBUILD || exit 1
+            printf '%s%s-%s\n' "${epoch:+${epoch}:}" "$pkgver" "$pkgrel"
+        )
+        python3 "$GITHUB_WORKSPACE/scripts/check-lib32-mesa-llvm.py" \
+            --recipe-version "$RECIPE_VERSION" \
+            --provider-db /var/lib/pacman/sync/multilib.db
+    fi
     
     # 本地包也使用 pikaur（自动处理依赖，包括 AUR）
     echo "==> 使用 pikaur 构建本地包: $PACKAGE_NAME"
