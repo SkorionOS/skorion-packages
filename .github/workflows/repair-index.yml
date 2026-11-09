@@ -1,0 +1,96 @@
+name: Repair Repository Index
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      snapshot:
+        description: 'Existing complete snapshot used as the recovery base'
+        required: true
+        default: '2026.11.08'
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: skorion-release-publication
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && contains(github.event.head_commit.message, '[repair-index]')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test recovery and publication guards
+        run: |
+          python3 -m pip install --disable-pip-version-check PyYAML==6.0.3
+          bash tests/test-bootc-dependencies.sh
+          python3 -m unittest discover -s tests -v
+      - name: Check head and acquire existing database lock
+        id: lock
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          actual=$(gh api "repos/$REPOSITORY/git/ref/heads/master" --jq '.object.sha')
+          test "$actual" = "$EXPECTED_SHA"
+          # Never remove someone else's lock or overwrite a newer head.
+          gh api --method POST "repos/$REPOSITORY/git/refs" \
+            -f ref=refs/locks/database -f sha="$EXPECTED_SHA" > /dev/null
+          echo 'locked=true' >> "$GITHUB_OUTPUT"
+      - name: Prepare complete indexes without building packages
+        env:
+          REPOSITORY: ${{ github.repository }}
+          SNAPSHOT: ${{ inputs.snapshot || '2026.11.08' }}
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
+            -e REPOSITORY -e SNAPSHOT -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" archlinux:latest bash -euc '
+              pacman -Sy --noconfirm python pacman-contrib
+              python scripts/repair-repo-index.py prepare "$REPOSITORY" recovery --snapshot "$SNAPSHOT"
+              chown -R "$HOST_UID:$HOST_GID" recovery
+            '
+      - name: Retain original indexes and recovery evidence before publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: index-recovery-evidence
+          path: |
+            recovery/backup/
+            recovery/manifest.json
+            recovery/baseline.json
+            recovery/report.json
+            recovery/output/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish and verify only the four index assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPOSITORY/git/ref/heads/master" --jq '.object.sha')" = "$EXPECTED_SHA"
+          test "$(gh api "repos/$REPOSITORY/git/ref/locks/database" --jq '.object.sha')" = "$EXPECTED_SHA"
+          python3 scripts/repair-repo-index.py publish "$REPOSITORY" recovery
+      - name: Release only the lock acquired by this job
+        if: always() && steps.lock.outputs.locked == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$REPOSITORY/git/ref/locks/database" --jq '.object.sha')" = "$EXPECTED_SHA"
+          gh api --method DELETE "repos/$REPOSITORY/git/refs/locks/database"

@@ -1,56 +1,64 @@
 #!/bin/bash
-# Update repository database (runs in Arch Linux container)
-# Usage: update-repo-database.sh <github-repository>
-
-set -e
+# Update both indexes without treating a failed download as an empty repository.
+# Initial publication/recovery is deliberately a separate, explicit operation.
+set -euo pipefail
 
 GITHUB_REPOSITORY="${1:-}"
 if [ -z "$GITHUB_REPOSITORY" ]; then
-  echo "Error: GITHUB_REPOSITORY not provided"
+  echo "Error: GITHUB_REPOSITORY not provided" >&2
   exit 1
 fi
 
-echo "==> Updating repository database"
-
-# Install necessary tools
 pacman -Sy --noconfirm pacman-contrib curl
+root="$PWD"
+staging=$(mktemp -d "$root/.repo-update.XXXXXX")
+trap 'rm -rf "$staging"' EXIT
 
-# Clean up old files
-rm -f skorion.db.tar.gz skorion.files.tar.gz skorion.db skorion.files
-
-# Download existing database
-DB_EXISTS=false
-echo "  → Downloading existing database"
-if curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/skorion.db.tar.gz" \
-    -o skorion.db.tar.gz; then
-  echo "  ✓ Downloaded existing database"
-  
-  # Verify file integrity
-  if [ -s skorion.db.tar.gz ] && tar -tzf skorion.db.tar.gz >/dev/null 2>&1; then
-    echo "  ✓ Database file verified"
-    DB_EXISTS=true
-  else
-    echo "  ⚠ Database file corrupted, creating new database"
-    rm -f skorion.db.tar.gz
-    DB_EXISTS=false
+for index in skorion.db.tar.gz skorion.files.tar.gz; do
+  echo "Downloading existing $index"
+  # HTTP errors, timeouts and invalid archives must abort before repo-add/upload.
+  curl --fail --show-error --location --retry 4 --retry-all-errors \
+    --connect-timeout 20 --max-time 180 \
+    "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/$index" \
+    --output "$staging/$index"
+  if [ ! -s "$staging/$index" ] || ! tar -tzf "$staging/$index" > "$staging/$index.list"; then
+    echo "Invalid existing $index; refusing to replace the published repository" >&2
+    exit 1
   fi
-else
-  echo "  → Creating first database (no existing database found)"
-  DB_EXISTS=false
+  if ! grep -q '/desc$' "$staging/$index.list"; then
+    echo "Empty existing $index; use explicit index recovery" >&2
+    exit 1
+  fi
+done
+sort "$staging/skorion.db.tar.gz.list" | grep '/desc$' > "$staging/db-packages"
+sort "$staging/skorion.files.tar.gz.list" | grep '/desc$' > "$staging/files-packages"
+if ! cmp -s "$staging/db-packages" "$staging/files-packages"; then
+  echo "Existing package and file indexes disagree; use explicit recovery" >&2
+  exit 1
 fi
+old_count=$(wc -l < "$staging/db-packages")
 
-# Update or create database
-if [ "$DB_EXISTS" = "true" ]; then
-  echo "  → Updating existing database"
-  repo-add skorion.db.tar.gz output/*.pkg.tar.zst
-else
-  echo "  → Creating new database"
-  repo-add skorion.db.tar.gz output/*.pkg.tar.zst
+shopt -s nullglob
+packages=("$root"/output/*.pkg.tar.zst)
+if [ "${#packages[@]}" -eq 0 ]; then
+  echo "No new packages to add" >&2
+  exit 1
 fi
-
-# Create symlinks
+(
+  cd "$staging"
+  repo-add skorion.db.tar.gz "${packages[@]}"
+  for index in skorion.db.tar.gz skorion.files.tar.gz; do
+    tar -tzf "$index" > "$index.list"
+    grep -q '/desc$' "$index.list"
+  done
+  sort skorion.db.tar.gz.list | grep '/desc$' > db-packages
+  sort skorion.files.tar.gz.list | grep '/desc$' > files-packages
+  cmp -s db-packages files-packages
+  test "$(wc -l < db-packages)" -ge "$old_count"
+)
+# Publishable files are only replaced after the complete update succeeds.
+cp "$staging/skorion.db.tar.gz" "$root/skorion.db.tar.gz"
+cp "$staging/skorion.files.tar.gz" "$root/skorion.files.tar.gz"
 ln -sf skorion.db.tar.gz skorion.db
 ln -sf skorion.files.tar.gz skorion.files
-
-echo "✓ Database update complete"
-
+echo "Database update complete"

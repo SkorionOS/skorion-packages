@@ -11,6 +11,10 @@ on:
     types:
       - completed  # 包括 success, failure, cancelled
 
+concurrency:
+  group: skorion-release-publication
+  cancel-in-progress: false
+
 jobs:
   cleanup:
     name: Clean Up All Locks
