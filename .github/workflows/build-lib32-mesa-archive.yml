@@ -1,0 +1,51 @@
+name: Build stable lib32 Mesa for November archive
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: stable-lib32-mesa-20261110
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build complete split family against the fixed archive
+        run: |
+          mkdir -p output
+          docker run --rm -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
+            archlinux:latest bash scripts/build-lib32-mesa-archive.sh
+      - uses: actions/upload-artifact@v5
+        with:
+          name: lib32-mesa-26.2.4.sk-3-20261110
+          path: output/*
+          if-no-files-found: error
+          compression-level: 0
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: lib32-mesa-26.2.4.sk-3-20261110
+          path: output
+      - name: Verify uploaded bytes
+        working-directory: output
+        run: sha256sum -c SHA256SUMS
+      - name: Publish isolated archive rebuild without touching latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          # Never overwrite a previous release or its assets.
+          gh release create lib32-mesa-26.2.4.sk-3-20261110 output/* \
+            --target "$SOURCE_COMMIT" --prerelease --latest=false \
+            --title 'lib32 Mesa 26.2.4.sk-3 for Arch 2026/11/10' \
+            --notes 'Complete custom stable 32-bit Mesa split family rebuilt against Arch archive 2026/11/10 and lib32-llvm-libs 1:23.1.4-1. Keeps existing sources and driver policy. Does not modify the latest package repository or historical packages.'

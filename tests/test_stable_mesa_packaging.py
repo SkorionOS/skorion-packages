@@ -53,7 +53,7 @@ class StableMesaRecipeTests(unittest.TestCase):
             with self.subTest(recipe=recipe):
                 subprocess.run(["bash", "-n", str(recipe)], check=True)
                 result = bash(recipe, 'printf "%s\\n" "$_pkgver" "$epoch:$pkgver-$pkgrel"')
-                release = 2 if name == "lib32-mesa" else 1
+                release = 3 if name == "lib32-mesa" else 1
                 self.assertEqual(result.stdout.splitlines(), ["26.2.4", f"1:26.2.4.sk-{release}"])
 
     def test_complete_source_manifest_is_verified_and_shared(self):
@@ -110,7 +110,7 @@ class StableMesaRecipeTests(unittest.TestCase):
                 src = Path(tmp)
                 (src / "mesa-26.2.4").mkdir()
                 bash(recipe, 'srcdir=$PWD; prepare', cwd=src)
-                release = 2 if name == "lib32-mesa" else 1
+                release = 3 if name == "lib32-mesa" else 1
                 self.assertEqual((src / "mesa-26.2.4" / "VERSION").read_text(), f"26.2.4-arch1.{release}\n")
                 header = (src / "d3d12-infoqueue-fwd.h").read_text()
                 for line in ("#ifndef __ASSEMBLER__", "#ifndef __ID3D12InfoQueue_FWD_DEFINED__",
