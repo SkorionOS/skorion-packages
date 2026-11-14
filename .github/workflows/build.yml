@@ -33,6 +33,10 @@ on:
           - ERROR
         default: 'INFO'
 
+concurrency:
+  group: skorion-release-publication
+  cancel-in-progress: false
+
 env:
   REPO_NAME: skorion
 
@@ -42,6 +46,8 @@ jobs:
   # ===========================================================================
   list-packages:
     name: Detect Updates
+    # Explicit index repair commits must not build or publish unrelated packages.
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[repair-index]')
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
@@ -413,7 +419,8 @@ jobs:
     name: Generate Snapshot Repository
     runs-on: ubuntu-latest
     if: |
-      always() && 
+      always() &&
+      needs.list-packages.result == 'success' &&
       (github.event_name == 'schedule' || github.event.inputs.create_snapshot == 'true') &&
       needs.build-packages.result != 'cancelled'
     container:
@@ -480,12 +487,7 @@ jobs:
           fi
           
           # 下载所有包文件
-          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
-            filename=$(basename "$url")
-            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
-            echo "  下载 $filename"
-            curl -sL "$url" -o "output/$filename"
-          done
+          python3 scripts/release_assets.py "${{ github.repository }}" latest output
           
           pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
           echo "==> 共下载 $pkg_count 个包"
@@ -564,6 +566,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       always() &&
+      needs.list-packages.result == 'success' &&
       github.event_name != 'schedule' &&
       github.event.inputs.create_snapshot != 'true' &&
       needs.build-packages.result != 'cancelled' &&
@@ -749,13 +752,7 @@ jobs:
           
           # 下载所有包文件
           mkdir -p output
-          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
-            filename=$(basename "$url")
-            # URL 解码文件名
-            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
-            echo "  下载 $filename"
-            curl -sL "$url" -o "output/$filename" || echo "    下载失败"
-          done
+          python3 scripts/release_assets.py "${{ github.repository }}" latest output
           
           # 统计下载的包数量
           pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
@@ -996,13 +993,7 @@ jobs:
           LATEST_JSON=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest")
           
           # 下载所有包文件（数据库已经在 output/ 中了）
-          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
-            filename=$(basename "$url")
-            # URL 解码文件名
-            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
-            echo "  下载 $filename"
-            curl -sL "$url" -o "output/$filename"
-          done
+          python3 scripts/release_assets.py "${{ github.repository }}" latest output
           
           pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
           echo "==> 共下载 $pkg_count 个包，准备创建快照"

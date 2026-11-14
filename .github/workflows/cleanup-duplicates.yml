@@ -14,6 +14,10 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: skorion-release-publication
+  cancel-in-progress: false
+
 jobs:
   cleanup:
     name: Clean Duplicate Packages
