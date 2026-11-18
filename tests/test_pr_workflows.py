@@ -26,7 +26,7 @@ class WorkflowTests(unittest.TestCase):
         cls.cleanup = workflow("cleanup-locks.yml")
 
     def test_pr_and_production_triggers_are_separate(self):
-        self.assertEqual(set(self.validation["on"]), {"pull_request"})
+        self.assertEqual(set(self.validation["on"]), {"pull_request", "workflow_dispatch"})
         self.assertEqual(self.validation["on"]["pull_request"]["branches"], ["master"])
         self.assertEqual(set(self.production["on"]), {"push", "schedule", "workflow_dispatch"})
         self.assertEqual(self.production["on"]["push"]["branches"], ["master"])

@@ -33,6 +33,10 @@ on:
           - ERROR
         default: 'INFO'
 
+concurrency:
+  group: package-repository-${{ github.repository }}
+  cancel-in-progress: false
+
 env:
   REPO_NAME: skorion
 
@@ -442,54 +446,10 @@ jobs:
             echo "==> 🔄 增量模式：仅更新变更的包"
           fi
       
-      # 快照模式：清理重复版本并下载所有包
-      - name: Clean duplicates and download all packages (snapshot mode)
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_FULL: ${{ github.repository }}
-          REPO_OWNER: ${{ github.repository_owner }}
-          REPO_NAME: ${{ github.event.repository.name }}
-          RELEASE_TAG: latest
-        run: |
-          echo "==> 清理 release 中的重复版本"
-          mkdir -p /tmp/empty_for_scan
-          OUTPUT_DIR=/tmp/empty_for_scan bash scripts/clean-old-assets.sh
-          
-          echo "==> 验证清理结果"
-          DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
-            jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
-            python3 -c "import sys, urllib.parse; suffix='.pkg.tar.zst'; [print(parts[0]) for raw in sys.stdin for name in [urllib.parse.unquote(raw.strip())] if name.endswith(suffix) for parts in [name[:-len(suffix)].rsplit('-', 3)] if len(parts) == 4]" | sort | uniq -d)
-          
-          if [ -n "$DUPES" ]; then
-            echo "❌ 错误：仍然存在重复的包："
-            echo "$DUPES"
-            exit 1
-          fi
-          echo "✓ 验证通过：无重复版本"
-          
-          echo ""
-          echo "==> 下载 latest release 中的所有包（含新构建的）"
-          mkdir -p output
-          
-          LATEST_JSON=$(curl -s "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/latest" || echo "{}")
-          
-          if echo "$LATEST_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
-            echo "  latest release 不存在，这是首次构建"
-            exit 0
-          fi
-          
-          # 下载所有包文件
-          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
-            filename=$(basename "$url")
-            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
-            echo "  下载 $filename"
-            curl -sL "$url" -o "output/$filename"
-          done
-          
-          pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
-          echo "==> 共下载 $pkg_count 个包"
-      
+      # Keep every historical asset; select the latest version locally.
+      - name: Download verified latest packages (snapshot mode)
+        run: python3 scripts/download-release-packages.py "${{ github.repository }}"
+
       # 增量模式不需要额外操作（包已实时上传到 latest）
       # 快照模式已在上一步下载所有包
       - name: List packages in output directory
@@ -624,149 +584,34 @@ jobs:
           
           echo "==> 锁清理完成"
       
-      - name: Clean old package versions before consistency check
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_FULL: ${{ github.repository }}
-          OUTPUT_DIR: /tmp/empty_for_scan
-          RELEASE_TAG: latest
-        run: |
-          echo "==> 清理旧包版本以确保一致性检查准确"
-          # 确保使用扫描重复版本模式（OUTPUT_DIR 为空）
-          mkdir -p "$OUTPUT_DIR"
-          bash scripts/clean-old-assets.sh
-          
-          echo "==> 验证清理结果"
-          DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
-            jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
-            python3 -c "import sys, urllib.parse; suffix='.pkg.tar.zst'; [print(parts[0]) for raw in sys.stdin for name in [urllib.parse.unquote(raw.strip())] if name.endswith(suffix) for parts in [name[:-len(suffix)].rsplit('-', 3)] if len(parts) == 4]" | sort | uniq -d)
-          
-          if [ -n "$DUPES" ]; then
-            echo "⚠️ 警告：仍然存在重复的包："
-            echo "$DUPES"
-            echo "这可能会导致数据库不一致"
-          else
-            echo "✓ 无重复版本"
-          fi
-      
       - name: Check database consistency
         id: check-db
         run: |
-          echo "==> 检查数据库一致性"
-          
-          # 获取 latest release 信息
-          LATEST_JSON=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" || echo "{}")
-          
-          # 检查 latest release 是否存在
-          if echo "$LATEST_JSON" | jq -e '.message == "Not Found"' > /dev/null 2>&1; then
-            echo "  latest release 不存在（首次构建后的第一次增量更新）"
-            echo "needs_rebuild=false" >> $GITHUB_OUTPUT
-            echo "has_packages=false" >> $GITHUB_ENV
-            exit 0
-          fi
-          
-          # 下载当前数据库
           mkdir -p output
-          echo "  下载当前数据库..."
-          if ! curl -sfL "https://github.com/${{ github.repository }}/releases/download/latest/skorion.db.tar.gz" -o output/skorion.db.tar.gz; then
-            echo "  ⚠️ 数据库下载失败或不存在，需要重建"
-            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
-            echo "has_packages=true" >> $GITHUB_ENV
-            exit 0
-          fi
-          
-          # 提取数据库中的包列表
-          echo "  提取数据库包列表..."
-          mkdir -p db_temp
-          tar -xzf output/skorion.db.tar.gz -C db_temp 2>/dev/null || {
-            echo "  ⚠️ 数据库文件损坏，需要重建"
-            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
-            echo "has_packages=true" >> $GITHUB_ENV
-            rm -rf db_temp output/skorion.db.tar.gz
-            exit 0
-          }
-          
-          # 从 desc 文件中提取包名和版本
-          db_packages=$(for desc_file in db_temp/*/desc; do
-            if [ -f "$desc_file" ]; then
-              pkg_name=""
-              pkg_version=""
-              pkg_arch=""
-              while IFS= read -r line; do
-                if [ "$line" = "%NAME%" ]; then
-                  read -r pkg_name
-                elif [ "$line" = "%VERSION%" ]; then
-                  read -r pkg_version
-                elif [ "$line" = "%ARCH%" ]; then
-                  read -r pkg_arch
-                fi
-              done < "$desc_file"
-              if [ -n "$pkg_name" ] && [ -n "$pkg_version" ] && [ -n "$pkg_arch" ]; then
-                # 转换 epoch 格式: version:x -> version--x (文件系统命名规则)
-                echo "${pkg_name}-${pkg_version/:/--}-${pkg_arch}.pkg.tar.zst"
-              fi
-            fi
-          done | sort)
-          
-          rm -rf db_temp
-          
-          # 获取 latest release 中的实际包列表
-          echo "  获取 release 包列表..."
-          release_packages=$(echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
-            while read name; do python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$name"; done | sort)
-          
-          # 对比包列表
-          db_count=$(echo -n "$db_packages" | grep -c . || echo 0)
-          release_count=$(echo -n "$release_packages" | grep -c . || echo 0)
-          
-          echo "  数据库包数量: $db_count"
-          echo "  Release 包数量: $release_count"
-          
-          if [ "$db_packages" = "$release_packages" ]; then
-            echo "  ✓ 数据库一致，无需重建"
-            echo "needs_rebuild=false" >> $GITHUB_OUTPUT
-            echo "has_packages=false" >> $GITHUB_ENV
+          # Extra historical assets are intentional. Compare only selected latest
+          # versions, including size/digest, not the entire release asset list.
+          if curl -fSL --http1.1 --retry 4 --retry-all-errors \
+              "https://github.com/${{ github.repository }}/releases/download/latest/skorion.db.tar.gz" \
+              -o output/skorion.db.tar.gz && \
+              python3 scripts/download-release-packages.py "${{ github.repository }}" \
+                --check-database output/skorion.db.tar.gz; then
+            echo "needs_rebuild=false" >> "$GITHUB_OUTPUT"
           else
-            echo "  ⚠️ 数据库不一致，需要重建"
-            # 显示差异（仅前 10 个）
-            if [ -n "$db_packages" ] && [ -n "$release_packages" ]; then
-              echo "  数据库中但 release 中没有的包:"
-              comm -23 <(printf '%s\n' "$db_packages") <(printf '%s\n' "$release_packages") | head -10 || true
-              echo "  release 中但数据库中没有的包:"
-              comm -13 <(printf '%s\n' "$db_packages") <(printf '%s\n' "$release_packages") | head -10 || true
-            fi
-            echo "needs_rebuild=true" >> $GITHUB_OUTPUT
-            echo "has_packages=true" >> $GITHUB_ENV
+            echo "needs_rebuild=true" >> "$GITHUB_OUTPUT"
           fi
-      
-      - name: Download all packages from latest release
+
+      - name: Download verified latest packages for database rebuild
         if: steps.check-db.outputs.needs_rebuild == 'true'
-        run: |
-          echo "==> 下载所有包以重建数据库"
-          
-          # 获取 latest release 信息
-          LATEST_JSON=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest")
-          
-          # 下载所有包文件
-          mkdir -p output
-          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
-            filename=$(basename "$url")
-            # URL 解码文件名
-            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
-            echo "  下载 $filename"
-            curl -sL "$url" -o "output/$filename" || echo "    下载失败"
-          done
-          
-          # 统计下载的包数量
-          pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
-          echo "==> 下载完成，共 $pkg_count 个包"
-      
+        run: python3 scripts/download-release-packages.py "${{ github.repository }}"
+
       - name: Regenerate complete database
         if: steps.check-db.outputs.needs_rebuild == 'true'
         env:
           OUTPUT_DIR: ./output
         run: |
           echo "==> 重新生成完整数据库"
+          # Full reconstruction must not retain stale entries from the old DB.
+          rm -f output/skorion.db output/skorion.db.tar.gz output/skorion.files output/skorion.files.tar.gz
           bash scripts/generate-repo.sh
       
       - name: Upload complete database and metadata
@@ -895,32 +740,6 @@ jobs:
           fi
           echo "new_package_count=$new_pkg_count" >> $GITHUB_OUTPUT
       
-      - name: Final cleanup - ensure no duplicates
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO_FULL: ${{ github.repository }}
-          OUTPUT_DIR: /tmp/empty_for_final_scan
-          RELEASE_TAG: latest
-        run: |
-          echo "==> 最终清理：确保没有重复版本"
-          # 强制使用扫描重复版本模式
-          mkdir -p "$OUTPUT_DIR"
-          bash scripts/clean-old-assets.sh
-          
-          echo "==> 最终验证"
-          DUPES=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest" | \
-            jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .name' | \
-            python3 -c "import sys, urllib.parse; suffix='.pkg.tar.zst'; [print(parts[0]) for raw in sys.stdin for name in [urllib.parse.unquote(raw.strip())] if name.endswith(suffix) for parts in [name[:-len(suffix)].rsplit('-', 3)] if len(parts) == 4]" | sort | uniq -d)
-          
-          if [ -n "$DUPES" ]; then
-            echo "❌ 错误：发布前仍存在重复版本："
-            echo "$DUPES"
-            echo "请检查清理脚本或手动清理"
-            exit 1
-          else
-            echo "✓ 验证通过：无重复版本"
-          fi
-      
       - name: Update latest release database (snapshot mode)
         if: steps.mode.outputs.mode == 'snapshot'
         uses: softprops/action-gh-release@v1
@@ -987,26 +806,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Download all packages for dated snapshot
+      - name: Download verified packages for dated snapshot
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
         run: |
-          echo "==> 从 latest release 下载所有包以创建日期快照"
-          
-          # 获取 latest release 信息
-          LATEST_JSON=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/tags/latest")
-          
-          # 下载所有包文件（数据库已经在 output/ 中了）
-          echo "$LATEST_JSON" | jq -r '.assets[] | select(.name | endswith(".pkg.tar.zst")) | .browser_download_url' | while read url; do
-            filename=$(basename "$url")
-            # URL 解码文件名
-            filename=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$filename")
-            echo "  下载 $filename"
-            curl -sL "$url" -o "output/$filename"
-          done
-          
-          pkg_count=$(ls -1 output/*.pkg.tar.zst 2>/dev/null | wc -l)
-          echo "==> 共下载 $pkg_count 个包，准备创建快照"
-      
+          # Use precisely the generated DB, not a second moving latest selection.
+          python3 scripts/download-release-packages.py "${{ github.repository }}" \
+            --database output/skorion.db.tar.gz
+
       - name: Create dated snapshot
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.create_snapshot)
         uses: softprops/action-gh-release@v1

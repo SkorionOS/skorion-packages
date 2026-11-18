@@ -3,6 +3,7 @@
 name: Validate Packages
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [master]
 
@@ -14,7 +15,7 @@ defaults:
     shell: bash
 
 concurrency:
-  group: validate-packages-${{ github.event.pull_request.number }}
+  group: validate-packages-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -41,7 +42,11 @@ jobs:
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          matrix=$(python3 scripts/select-pr-packages.py --base "$PR_BASE_SHA" --head HEAD)
+          # Manual validation is regression-only, never a package rebuild.
+          matrix='[]'
+          if [ -n "$PR_BASE_SHA" ]; then
+            matrix=$(python3 scripts/select-pr-packages.py --base "$PR_BASE_SHA" --head HEAD)
+          fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "Packages to validate: $matrix"
 
@@ -82,3 +87,19 @@ jobs:
             archlinux:latest \
             bash /workspace/scripts/build-in-container.sh "$PACKAGE_NAME" "$PACKAGE_TYPE"
           find output -maxdepth 1 -type f -name '*.pkg.tar.zst' -print -quit | grep -q .
+
+  repository-index-smoke:
+    name: Repository index smoke test (no compilation or publication)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install repository tools with a full upgrade
+        run: pacman -Syu --noconfirm pacman-contrib curl
+      - name: Test incremental indexes with tiny package fixtures
+        run: bash tests/test-repository-index.sh

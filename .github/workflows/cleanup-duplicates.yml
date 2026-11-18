@@ -9,9 +9,9 @@ on:
         default: 'latest'
         type: string
       dry_run:
-        description: '仅检测不删除（Dry Run）'
+        description: '仅检测不删除（默认保留历史包）'
         required: false
-        default: false
+        default: true
         type: boolean
 
 jobs:

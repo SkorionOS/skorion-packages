@@ -2,7 +2,7 @@
 # Update repository database (runs in Arch Linux container)
 # Usage: update-repo-database.sh <github-repository>
 
-set -e
+set -euo pipefail
 
 GITHUB_REPOSITORY="${1:-}"
 if [ -z "$GITHUB_REPOSITORY" ]; then
@@ -13,40 +13,37 @@ fi
 echo "==> Updating repository database"
 
 # Install necessary tools
-pacman -Sy --noconfirm pacman-contrib curl
+pacman -Syu --noconfirm pacman-contrib curl
 
 # Clean up old files
 rm -f skorion.db.tar.gz skorion.files.tar.gz skorion.db skorion.files
 
-# Download existing database
-DB_EXISTS=false
-echo "  → Downloading existing database"
-if curl -sfL "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/skorion.db.tar.gz" \
-    -o skorion.db.tar.gz; then
-  echo "  ✓ Downloaded existing database"
-  
-  # Verify file integrity
-  if [ -s skorion.db.tar.gz ] && tar -tzf skorion.db.tar.gz >/dev/null 2>&1; then
-    echo "  ✓ Database file verified"
-    DB_EXISTS=true
+# Download both indexes so repo-add preserves unaffected packages and file lists.
+# Only a definite HTTP 404 means absent; transient failures/corruption fail closed.
+download_index() {
+  local filename="$1" status
+  if status=$(curl -fSL --http1.1 --retry 4 --retry-all-errors \
+      --connect-timeout 30 --max-time 300 --write-out '%{http_code}' \
+      "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/$filename" \
+      -o "$filename"); then
+    tar -tzf "$filename" >/dev/null
+    return 0
+  elif [ "$status" = "404" ]; then
+    rm -f "$filename"
+    return 0
   else
-    echo "  ⚠ Database file corrupted, creating new database"
-    rm -f skorion.db.tar.gz
-    DB_EXISTS=false
+    echo "Cannot download $filename (HTTP $status)" >&2
+    return 1
   fi
-else
-  echo "  → Creating first database (no existing database found)"
-  DB_EXISTS=false
+}
+download_index skorion.db.tar.gz
+download_index skorion.files.tar.gz
+if { [ -f skorion.db.tar.gz ] && [ ! -f skorion.files.tar.gz ]; } || \
+   { [ ! -f skorion.db.tar.gz ] && [ -f skorion.files.tar.gz ]; }; then
+  echo "Incomplete live index pair; refusing a partial update" >&2
+  exit 1
 fi
-
-# Update or create database
-if [ "$DB_EXISTS" = "true" ]; then
-  echo "  → Updating existing database"
-  repo-add skorion.db.tar.gz output/*.pkg.tar.zst
-else
-  echo "  → Creating new database"
-  repo-add skorion.db.tar.gz output/*.pkg.tar.zst
-fi
+repo-add skorion.db.tar.gz output/*.pkg.tar.zst
 
 # Create symlinks
 ln -sf skorion.db.tar.gz skorion.db
