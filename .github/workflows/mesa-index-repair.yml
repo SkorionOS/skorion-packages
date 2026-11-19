@@ -1,0 +1,23 @@
+name: Restore the paired Mesa Git indexes (2026-11-19)
+on:
+  push:
+    branches: [maintenance/mesa-index-repair-20261119]
+permissions:
+  contents: write
+concurrency:
+  group: package-repository-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  repair:
+    if: github.repository == 'SkorionOS/skorion-packages' && github.ref == 'refs/heads/maintenance/mesa-index-repair-20261119'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify and replace the four latest aliases only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: SkorionOS/skorion-packages
+        run: bash scripts/mesa-index-repair-once.sh
