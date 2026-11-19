@@ -67,6 +67,24 @@ if [ "$PACKAGE_TYPE" = "aur" ]; then
     # Apply after checkout so pinned recipes receive the same normalization.
     case "$PACKAGE_NAME" in
         mesa-git|lib32-mesa-git)
+            if [ -n "${MESA_SOURCE_COMMIT:-}" ]; then
+                [[ "$MESA_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || exit 1
+                mesa_source='mesa::git+https://gitlab.freedesktop.org/mesa/mesa.git#branch=main'
+                occurrences=$(grep -Fo -- "$mesa_source" PKGBUILD | wc -l)
+                if [ "$occurrences" -ne 1 ]; then
+                    echo "Unexpected Mesa VCS source entry; refusing an unpinned build" >&2
+                    exit 1
+                fi
+                sed -i "s|\(mesa::git+https://gitlab[.]freedesktop[.]org/mesa/mesa[.]git\)#branch=main\(['\"]\)|\1#commit=$MESA_SOURCE_COMMIT\2|" PKGBUILD
+                grep -Fq -- "mesa::git+https://gitlab.freedesktop.org/mesa/mesa.git#commit=$MESA_SOURCE_COMMIT" PKGBUILD
+                if [ "$(grep -cFx 'pkgver() {' PKGBUILD)" -ne 1 ]; then
+                    echo "Unexpected Mesa pkgver function; cannot verify the pinned checkout" >&2
+                    exit 1
+                fi
+                # makepkg enters srcdir for pkgver. Check the actual full SHA
+                # before building, rather than only its filename abbreviation.
+                sed -i '/^pkgver() {$/a\    [[ $(git -C mesa rev-parse HEAD) == '"$MESA_SOURCE_COMMIT"' ]] || return 1' PKGBUILD
+            fi
             sed -E -i "s/(['\"])libLLVM[.]so=[0-9][0-9.]*-(32|64)\\1/\\1libLLVM.so\\1/g" PKGBUILD
             ;;
     esac

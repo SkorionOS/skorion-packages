@@ -29,23 +29,65 @@ def package_identity(filename):
     return (name, arch), f'{epoch + ":" if epoch else ""}{version}-{release}'
 
 
+MESA_GIT_PACKAGES = frozenset(('mesa-git', 'lib32-mesa-git'))
+MESA_GIT_SOURCE = re.compile(r'(.+\.\d+)\.([0-9a-f]{7,40})\.[0-9a-f]{7}')
+
+
+def mesa_git_revision(version):
+    # AUR pkgver(): upstream version, commit count, short git SHA, patch digest.
+    match = MESA_GIT_SOURCE.fullmatch(version.rsplit('-', 1)[0])
+    if not match:
+        return None
+    # Patch digests and pkgrel need not be the same in the two recipes.
+    return f'{match[1]}.{match[2]}'
+
+
+def select_newer(selected, identity, asset, version):
+    if identity in selected:
+        previous, previous_version = selected[identity]
+        comparison = int(subprocess.check_output(['vercmp', version, previous_version], text=True).strip())
+        if comparison == 0 and unquote(asset['name']) != unquote(previous['name']):
+            raise ValueError(f'Ambiguous equal versions: {asset["name"]}, {previous["name"]}')
+        if comparison <= 0:
+            return
+    selected[identity] = (asset, version)
+
+
 def latest_packages(assets):
     selected = {}
+    mesa_revisions = {}
+    mesa_arches = set()
     for asset in assets:
         filename = unquote(asset['name'])
         if not filename.endswith('.pkg.tar.zst'):
             continue
         identity, version = package_identity(filename)
-        if identity in selected:
-            previous, previous_version = selected[identity]
-            comparison = int(subprocess.check_output(['vercmp', version, previous_version], text=True).strip())
-            if comparison == 0 and filename != unquote(previous['name']):
-                raise ValueError(f'Ambiguous equal versions: {filename}, {previous["name"]}')
-            if comparison <= 0:
+        name, arch = identity
+        if name in MESA_GIT_PACKAGES:
+            mesa_arches.add(arch)
+            revision = mesa_git_revision(version)
+            if revision is None or not re.fullmatch(r'sha256:[0-9a-f]{64}', asset.get('digest') or ''):
+                print(f'Skipping Mesa git asset without a recognized revision or digest: {filename}')
                 continue
-        selected[identity] = (asset, version)
+            select_newer(mesa_revisions.setdefault((arch, revision), {}), name, asset, version)
+            continue
+        select_newer(selected, identity, asset, version)
+
+    # Only complete pairs are candidates: a single successful build can never
+    # advance either pacman index, even on a full snapshot/rebuild.
+    mesa_pairs = {}
+    for (arch, revision), pair in sorted(mesa_revisions.items()):
+        if pair.keys() != MESA_GIT_PACKAGES:
+            print(f'Keeping unpaired Mesa git revision {revision} out of indexes ({arch})')
+            continue
+        select_newer(mesa_pairs, arch, *pair['mesa-git'])
+    if missing := mesa_arches - mesa_pairs.keys():
+        raise ValueError(f'No complete verified Mesa git pair for {sorted(missing)}; refusing to remove Mesa')
+    for arch, (_, version) in mesa_pairs.items():
+        selected.update({(name, arch): value for name, value in
+                         mesa_revisions[arch, mesa_git_revision(version)].items()})
     if not selected:
-        raise ValueError('Release has no packages')
+        raise ValueError('Release has no eligible packages')
     return sorted((item[0] for item in selected.values()), key=lambda a: a['name'])
 
 
