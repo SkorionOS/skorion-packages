@@ -54,6 +54,7 @@ jobs:
       local-packages: ${{ steps.set-local.outputs.matrix }}
       all-packages: ${{ steps.set-all.outputs.matrix }}
       has-updates: ${{ steps.check-updates.outputs.has-updates }}
+      mesa-source: ${{ steps.mesa-source.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
       
@@ -183,6 +184,8 @@ jobs:
       
       - name: Merge package lists
         id: set-all
+        env:
+          SKIP_PACKAGES: ${{ github.event.inputs.skip_packages || '' }}
         run: |
           # 合并 AUR 和本地包列表，添加类型标记
           aur_packages='${{ steps.set-aur.outputs.matrix }}'
@@ -192,10 +195,40 @@ jobs:
           all_packages=$(jq -nc \
             --argjson aur "$aur_packages" \
             --argjson local "$local_packages" \
-            '($aur | map({package: ., type: "aur"})) + ($local | map({package: ., type: "local"}))')
+            --arg skip "$SKIP_PACKAGES" '
+            def mesa: . == "mesa-git" or . == "lib32-mesa-git";
+            ($skip | split(",") | map(gsub("^\\s+|\\s+$"; "")) | any(.[]; mesa)) as $skip_mesa |
+            ($aur | any(.[]; mesa)) as $build_mesa |
+            (($aur | map(select(mesa | not))) +
+                (if $build_mesa and ($skip_mesa | not) then ["mesa-git", "lib32-mesa-git"] else [] end)
+                | map({package: ., type: "aur"})) + ($local | map({package: ., type: "local"}))')
           
           echo "matrix=$all_packages" >> $GITHUB_OUTPUT
           echo "All packages to build: $(echo "$all_packages" | jq -c '.[0:3]')... (total: $(echo "$all_packages" | jq 'length'))"
+
+      - name: Resolve shared Mesa source commit
+        id: mesa-source
+        shell: bash
+        env:
+          PACKAGES: ${{ steps.set-all.outputs.matrix }}
+        run: |
+          if ! jq -e 'any(.[]; .type == "aur" and .package == "mesa-git")' <<< "$PACKAGES" >/dev/null; then
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if main_ref=$(timeout 60 git -c http.version=HTTP/1.1 ls-remote --exit-code \
+                https://gitlab.freedesktop.org/mesa/mesa.git refs/heads/main); then
+              read -r commit ref <<< "$main_ref"
+              if [[ "$commit" =~ ^[0-9a-f]{40}$ && "$ref" == refs/heads/main ]]; then
+                echo "commit=$commit" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            sleep "$((attempt * 3))"
+          done
+          # The two Mesa jobs will fail before building, but unrelated packages
+          # can still run and publish.
+          echo "::warning::Could not resolve shared Mesa main commit"
 
   # ===========================================================================
   # Job 2: 并行构建所有包（AUR + 本地）
@@ -300,7 +333,18 @@ jobs:
       
       - name: Build ${{ matrix.type }} package - ${{ matrix.package }}
         id: build
+        env:
+          MESA_BUILD: ${{ matrix.package == 'mesa-git' || matrix.package == 'lib32-mesa-git' }}
+          MESA_SOURCE_COMMIT: ${{ needs.list-packages.outputs.mesa-source }}
         run: |
+          if [ "$MESA_BUILD" = "true" ]; then
+            if [[ ! "$MESA_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Mesa git builds require a shared source commit"
+              exit 1
+            fi
+          else
+            unset MESA_SOURCE_COMMIT
+          fi
           mkdir -p "$GITHUB_WORKSPACE/output"
           
           # 为每个包使用独立的 SRCDEST 子目录，避免 git 仓库名称冲突
@@ -313,14 +357,23 @@ jobs:
             -v "$PACKAGE_SRCDEST:/tmp/makepkg-cache" \
             -v "/var/cache/pacman/pkg:/var/cache/pacman/pkg" \
             -e SRCDEST=/tmp/makepkg-cache \
+            -e MESA_SOURCE_COMMIT \
             -w /workspace \
             archlinux:latest \
             bash /workspace/scripts/build-in-container.sh "${{ matrix.package }}" "${{ matrix.type }}"
       
-      # 所有模式：实时上传到 latest release（快照模式最后会重建数据库确保一致性）
+      - name: Stage verified-source Mesa binary for paired indexing
+        if: matrix.package == 'mesa-git' || matrix.package == 'lib32-mesa-git'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MESA_PACKAGE: ${{ matrix.package }}
+          MESA_SOURCE_COMMIT: ${{ needs.list-packages.outputs.mesa-source }}
+        run: bash scripts/stage-mesa-git.sh "$GITHUB_REPOSITORY" "$MESA_PACKAGE" "$MESA_SOURCE_COMMIT" output
+
+      # Non-Mesa packages retain the independent upload/incremental path.
       - name: Acquire database lock
         id: lock
-        if: success()
+        if: success() && matrix.package != 'mesa-git' && matrix.package != 'lib32-mesa-git'
         continue-on-error: true
         run: |
           echo "==> 尝试获取数据库锁"
@@ -358,7 +411,7 @@ jobs:
           fi
       
       - name: Upload package to latest release
-        if: success()
+        if: success() && matrix.package != 'mesa-git' && matrix.package != 'lib32-mesa-git'
         continue-on-error: true
         uses: softprops/action-gh-release@v1
         with:

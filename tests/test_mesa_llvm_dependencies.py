@@ -55,7 +55,7 @@ cp PKGBUILD "$CAPTURED_PKGBUILD"
         command.write_text("#!/bin/bash\nset -e\n" + source)
         command.chmod(0o755)
 
-    def run_build(self, package, recipe, pinned=None):
+    def run_build(self, package, recipe, pinned=None, mesa_commit=""):
         package_dir = self.work / package
         package_dir.mkdir(exist_ok=True)
         (package_dir / "PKGBUILD").write_text(recipe)
@@ -63,7 +63,7 @@ cp PKGBUILD "$CAPTURED_PKGBUILD"
             (package_dir / "PKGBUILD.pinned").write_text(pinned)
             (self.workspace / "aur-pinned.conf").write_text(f"{package}=example-commit\n")
         result = subprocess.run(
-            ["bash", str(SCRIPT), package, "aur"], env=self.env,
+            ["bash", str(SCRIPT), package, "aur"], env=dict(self.env, MESA_SOURCE_COMMIT=mesa_commit),
             text=True, capture_output=True, timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -102,6 +102,25 @@ cp PKGBUILD "$CAPTURED_PKGBUILD"
         self.assertEqual(
             result, "depends=('libLLVM.so')\nbuild() { meson setup mesa mesa/_build; }\n"
         )
+
+    def test_shared_mesa_source_is_pinned_and_other_vcs_source_is_unchanged(self):
+        commit = "6f23942285e" + "1" * 29
+        for package in ("mesa-git", "lib32-mesa-git"):
+            with self.subTest(package=package):
+                recipe = (
+                    "source=('mesa::git+https://gitlab.freedesktop.org/mesa/mesa.git#branch=main' "
+                    "'other::git+https://example.invalid/other.git#branch=main')\n"
+                    'pkgver() {\n    echo test-version\n}\n'
+                )
+                result = self.run_build(package, recipe, mesa_commit=commit)
+                self.assertIn("mesa.git#commit=" + commit, result)
+                self.assertIn("other.git#branch=main", result)
+                self.assertIn(f"[[ $(git -C mesa rev-parse HEAD) == {commit} ]] || return 1", result)
+
+    def test_shared_mesa_pin_fails_closed_for_unexpected_recipe(self):
+        commit = "6f23942285e" + "1" * 29
+        with self.assertRaisesRegex(AssertionError, "Unexpected Mesa VCS source entry"):
+            self.run_build("mesa-git", "source=('https://example.invalid/mesa')\n", mesa_commit=commit)
 
     def test_no_fixed_llvm_version_remains_in_patch_rules(self):
         rules = (ROOT / "pkgbuild-patches.conf").read_text()

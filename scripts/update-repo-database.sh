@@ -10,6 +10,15 @@ if [ -z "$GITHUB_REPOSITORY" ]; then
   exit 1
 fi
 
+# Mesa git packages must enter the indexes via the complete-pair selector,
+# never through a matrix job's generic one-package update.
+shopt -s nullglob
+for package in output/mesa-git-*.pkg.tar.zst output/lib32-mesa-git-*.pkg.tar.zst; do
+    echo "Mesa git is not eligible for direct incremental indexing: $package" >&2
+    exit 1
+done
+shopt -u nullglob
+
 echo "==> Updating repository database"
 
 # Install necessary tools

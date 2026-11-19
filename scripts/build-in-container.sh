@@ -18,6 +18,11 @@ export GITHUB_WORKSPACE="/workspace"
 
 # 使用 SRCDEST 环境变量（如果设置了）来缓存源码
 export SRCDEST="${SRCDEST:-}"
+export MESA_SOURCE_COMMIT="${MESA_SOURCE_COMMIT:-}"
+if [ -n "$MESA_SOURCE_COMMIT" ] && [[ ! "$MESA_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid Mesa source commit" >&2
+  exit 1
+fi
 
 # Setup build environment
 bash /workspace/scripts/setup-archlinux-build-env.sh "${PACKAGE_NAME}"
@@ -36,6 +41,7 @@ sudo -u builder bash -c "
   export WORK_DIR='${WORK_DIR}'
   export GITHUB_WORKSPACE='${GITHUB_WORKSPACE}'
   export SRCDEST='${SRCDEST}'
+  export MESA_SOURCE_COMMIT='${MESA_SOURCE_COMMIT:-}'
   bash ${GITHUB_WORKSPACE}/scripts/build-single-package.sh '${PACKAGE_NAME}' '${PACKAGE_TYPE}'
 "
 
